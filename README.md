@@ -14,6 +14,12 @@ Endpoints are migrated one at a time; everything not yet listed below still runs
   key n8n used) as `הושלם` and refreshes its patient-detail columns.
 - `GET /kamash/pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
 - `GET /kamash/prevdiagnostics` — returns every row in "אבחונים", raw.
+- `POST /kamash/sendEmailWithDiagnosis` — sends the diagnosis PDF (already rendered client-side) to
+  `?mail=`. **Bug fixed vs. n8n**: the original workflow unconditionally also CC'd a hardcoded test
+  address on every send — that branch is dropped, so this now only ever sends to the real recipient.
+  A request with no `mail` now fails with 400 instead of silently no-op'ing while the frontend shows a
+  false success toast. Subject/body text is still placeholder copy carried over from n8n — real wording
+  needs to come from the clinic (see `emailService.ts`).
 
 ## Setup
 
