@@ -5,6 +5,7 @@ import {
   DIAGNOSES_COLUMNS,
   PARENT_QUESTIONNAIRES_COLUMNS,
   ParentQuestionnaireStatus,
+  VERSIONS_COLUMNS,
 } from "../config/sheets.js";
 import { logger } from "../lib/logger.js";
 
@@ -106,8 +107,28 @@ export const diagnosesRepo = {
   findByJobId(jobId: string): Promise<SheetRow | null> {
     return findRowByColumn(SHEETS.DIAGNOSES, DIAGNOSES_COLUMNS.JOB_ID, jobId);
   },
+  appendDiagnosis(fields: Record<string, string>): Promise<void> {
+    return appendRow(SHEETS.DIAGNOSES, fields);
+  },
   updateByRowNumber(rowNumber: number, patch: Record<string, string>): Promise<void> {
     return updateRowByNumber(SHEETS.DIAGNOSES, rowNumber, patch);
+  },
+  async updateByJobId(jobId: string, patch: Record<string, string>): Promise<void> {
+    const found = await findRowByColumn(SHEETS.DIAGNOSES, DIAGNOSES_COLUMNS.JOB_ID, jobId);
+    if (!found) {
+      throw new Error(`No diagnosis found for jobId "${jobId}" when trying to update it`);
+    }
+    await updateRowByNumber(SHEETS.DIAGNOSES, found.rowNumber, patch);
+  },
+};
+
+export const versionsRepo = {
+  appendVersion(jobId: string, version: number, content: string): Promise<void> {
+    return appendRow(SHEETS.VERSIONS, {
+      [VERSIONS_COLUMNS.JOB_ID]: jobId,
+      [VERSIONS_COLUMNS.VERSION]: String(version),
+      [VERSIONS_COLUMNS.CONTENT]: content,
+    });
   },
 };
 
