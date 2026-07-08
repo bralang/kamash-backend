@@ -12,6 +12,8 @@ Endpoints are migrated one at a time; everything not yet listed below still runs
   updates the "אבחונים" sheet row's `גרסא אחרונה html` column.
 - `POST /kamash/updateTestToFix` — marks a "שאלוני הורים" row (matched by patient name, same fragile
   key n8n used) as `הושלם` and refreshes its patient-detail columns.
+- `GET /kamash/pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
+- `GET /kamash/prevdiagnostics` — returns every row in "אבחונים", raw.
 
 ## Setup
 

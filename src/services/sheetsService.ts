@@ -1,6 +1,11 @@
 import { getSheetsClient } from "./googleAuth.js";
 import type { SheetRef } from "../config/sheets.js";
-import { SHEETS, DIAGNOSES_COLUMNS, PARENT_QUESTIONNAIRES_COLUMNS } from "../config/sheets.js";
+import {
+  SHEETS,
+  DIAGNOSES_COLUMNS,
+  PARENT_QUESTIONNAIRES_COLUMNS,
+  ParentQuestionnaireStatus,
+} from "../config/sheets.js";
 import { logger } from "../lib/logger.js";
 
 export interface SheetRow {
@@ -95,6 +100,9 @@ export async function updateRowByNumber(
 // ---- Typed repos ----
 
 export const diagnosesRepo = {
+  findAll(): Promise<Record<string, string>[]> {
+    return getAllRows(SHEETS.DIAGNOSES);
+  },
   findByJobId(jobId: string): Promise<SheetRow | null> {
     return findRowByColumn(SHEETS.DIAGNOSES, DIAGNOSES_COLUMNS.JOB_ID, jobId);
   },
@@ -120,5 +128,9 @@ export const parentQuestionnairesRepo = {
   },
   updateByRowNumber(rowNumber: number, patch: Record<string, string>): Promise<void> {
     return updateRowByNumber(SHEETS.PARENT_QUESTIONNAIRES, rowNumber, patch);
+  },
+  async findPending(): Promise<Record<string, string>[]> {
+    const rows = await getAllRows(SHEETS.PARENT_QUESTIONNAIRES);
+    return rows.filter((r) => r[PARENT_QUESTIONNAIRES_COLUMNS.STATUS] === ParentQuestionnaireStatus.PENDING);
   },
 };
