@@ -3,7 +3,7 @@ name: Deploy kamash-backend
 on:
   push:
     branches:
-      - production
+      - main
 
 jobs:
   deploy:
