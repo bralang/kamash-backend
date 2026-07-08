@@ -1,6 +1,7 @@
 import { getSheetsClient } from "./googleAuth.js";
 import type { SheetRef } from "../config/sheets.js";
-import { SHEETS, DIAGNOSES_COLUMNS } from "../config/sheets.js";
+import { SHEETS, DIAGNOSES_COLUMNS, PARENT_QUESTIONNAIRES_COLUMNS } from "../config/sheets.js";
+import { logger } from "../lib/logger.js";
 
 export interface SheetRow {
   /** 1-indexed row number as it appears in the actual spreadsheet (header is row 1). */
@@ -99,5 +100,25 @@ export const diagnosesRepo = {
   },
   updateByRowNumber(rowNumber: number, patch: Record<string, string>): Promise<void> {
     return updateRowByNumber(SHEETS.DIAGNOSES, rowNumber, patch);
+  },
+};
+
+export const parentQuestionnairesRepo = {
+  /** Matches the n8n workflow's own (fragile) key: patient name. If more than one row
+   * shares a name, that's a real ambiguity in the data — log it loudly and fall back to
+   * the most recently added matching row rather than silently editing a random one. */
+  async findByName(name: string): Promise<SheetRow | null> {
+    const matches = await findRowsByColumn(SHEETS.PARENT_QUESTIONNAIRES, PARENT_QUESTIONNAIRES_COLUMNS.NAME, name);
+    if (matches.length === 0) return null;
+    if (matches.length > 1) {
+      logger.warn(
+        { name, rowNumbers: matches.map((m) => m.rowNumber) },
+        "Multiple שאלוני הורים rows matched by name — using the most recently added row",
+      );
+    }
+    return matches[matches.length - 1];
+  },
+  updateByRowNumber(rowNumber: number, patch: Record<string, string>): Promise<void> {
+    return updateRowByNumber(SHEETS.PARENT_QUESTIONNAIRES, rowNumber, patch);
   },
 };

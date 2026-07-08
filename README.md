@@ -10,6 +10,8 @@ Endpoints are migrated one at a time; everything not yet listed below still runs
 
 - `POST /kamash/editmanually` — saves manually edited report HTML into the patient's Drive folder and
   updates the "אבחונים" sheet row's `גרסא אחרונה html` column.
+- `POST /kamash/updateTestToFix` — marks a "שאלוני הורים" row (matched by patient name, same fragile
+  key n8n used) as `הושלם` and refreshes its patient-detail columns.
 
 ## Setup
 

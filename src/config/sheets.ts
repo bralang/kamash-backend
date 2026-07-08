@@ -99,3 +99,8 @@ export const DiagnosisStatus = {
 } as const;
 
 export type DiagnosisStatusValue = (typeof DiagnosisStatus)[keyof typeof DiagnosisStatus];
+
+export const ParentQuestionnaireStatus = {
+  PENDING: "בהמתנה",
+  COMPLETED: "הושלם",
+} as const;
