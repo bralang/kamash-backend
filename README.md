@@ -7,6 +7,9 @@ for full background on the n8n workflows being ported and the endpoint-by-endpoi
 All 6 in-scope endpoints have now been migrated (see below); everything not yet cut over in nginx
 still runs on n8n in the meantime.
 
+> **Deploys** run via GitHub Actions on push to the `main` branch — see
+> [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+
 ## Endpoints
 
 - `POST /kamash/editmanually` — saves manually edited report HTML into the patient's Drive folder and
