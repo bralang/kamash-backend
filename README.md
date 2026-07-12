@@ -9,6 +9,9 @@ All 6 in-scope endpoints have been migrated and are served from a dedicated API 
 path after the domain is kept identical to the old n8n webhook path (`/webhook/kamash/<name>`), so
 switching the frontend over is purely a hostname swap.
 
+> **Deploys** run via GitHub Actions on push to the `main` branch — see
+> [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+
 ## Endpoints
 
 All mounted under `/webhook/kamash` (e.g. `POST https://kamash-api.link-up.co.il/webhook/kamash/editmanually`):

@@ -1,0 +1,79 @@
+name: Deploy kamash-backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_VERSION: 20
+      DEPLOY_PATH: /www/wwwroot/kamash/backend
+      SERVICE_NAME: kamash-backend.service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Set release id
+        run: |
+          echo "RELEASE_ID=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Prepare release package
+        run: |
+          mkdir -p package
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            ./ package/
+
+      - name: Upload release to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          source: "package/*"
+          target: "${{ env.DEPLOY_PATH }}/releases/${{ env.RELEASE_ID }}"
+          strip_components: 1
+
+      - name: Activate release and restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            set -e
+
+            cd "${{ env.DEPLOY_PATH }}"
+
+            ln -sfn "${{ env.DEPLOY_PATH }}/releases/${{ env.RELEASE_ID }}" "${{ env.DEPLOY_PATH }}/current"
+
+            cd "${{ env.DEPLOY_PATH }}/current"
+            npm ci
+
+            sudo -n /usr/bin/systemctl daemon-reload
+            sudo -n /usr/bin/systemctl restart "${{ env.SERVICE_NAME }}"
+            sudo -n /usr/bin/systemctl status "${{ env.SERVICE_NAME }}" --no-pager
+
+            echo "Deploy completed"
+            echo "Release: ${{ env.RELEASE_ID }}"
