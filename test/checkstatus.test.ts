@@ -18,7 +18,7 @@ import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
 
 const app = createApp();
 
-describe("POST /kamash/checkstatus", () => {
+describe("POST /webhook/kamash/checkstatus", () => {
   beforeEach(() => {
     vi.mocked(diagnosesRepo.findByJobId).mockReset();
     vi.mocked(downloadFileText).mockReset();
@@ -30,7 +30,7 @@ describe("POST /kamash/checkstatus", () => {
       row: { [DIAGNOSES_COLUMNS.STATUS]: "processing2" },
     });
 
-    const res = await request(app).post("/kamash/checkstatus").send({ jobId: "abc" });
+    const res = await request(app).post("/webhook/kamash/checkstatus").send({ jobId: "abc" });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ jobid: "abc", status: "processing2" });
@@ -47,7 +47,7 @@ describe("POST /kamash/checkstatus", () => {
     });
     vi.mocked(downloadFileText).mockResolvedValue("<h2>סיכום אבחון</h2>");
 
-    const res = await request(app).post("/kamash/checkstatus").send({ jobId: "abc" });
+    const res = await request(app).post("/webhook/kamash/checkstatus").send({ jobId: "abc" });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ jobid: "abc", status: "done", content: "<h2>סיכום אבחון</h2>" });
@@ -60,7 +60,7 @@ describe("POST /kamash/checkstatus", () => {
       row: { [DIAGNOSES_COLUMNS.STATUS]: "failed" },
     });
 
-    const res = await request(app).post("/kamash/checkstatus").send({ jobId: "abc" });
+    const res = await request(app).post("/webhook/kamash/checkstatus").send({ jobId: "abc" });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ jobid: "abc", status: "failed" });
@@ -69,7 +69,7 @@ describe("POST /kamash/checkstatus", () => {
   it("returns 404 when no row matches the jobId", async () => {
     vi.mocked(diagnosesRepo.findByJobId).mockResolvedValue(null);
 
-    const res = await request(app).post("/kamash/checkstatus").send({ jobId: "missing" });
+    const res = await request(app).post("/webhook/kamash/checkstatus").send({ jobId: "missing" });
 
     expect(res.status).toBe(404);
   });

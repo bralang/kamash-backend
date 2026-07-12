@@ -2,41 +2,49 @@
 
 Node/Express + TypeScript backend replacing the n8n workflows behind **עורכת לשונית של מכון קמ"ש**
 (`https://n8n.link-up.co.il/webhook/kamash/*`). See the migration plan this repo was scaffolded from
-for full background on the n8n workflows being ported and the endpoint-by-endpoint cutover strategy.
+for full background on the n8n workflows being ported.
 
-All 6 in-scope endpoints have now been migrated (see below); everything not yet cut over in nginx
-still runs on n8n in the meantime.
+All 6 in-scope endpoints have been migrated and are served from a dedicated API subdomain,
+**`https://kamash-api.link-up.co.il`**, cutting over from n8n all at once rather than gradually — the
+path after the domain is kept identical to the old n8n webhook path (`/webhook/kamash/<name>`), so
+switching the frontend over is purely a hostname swap.
 
 ## Endpoints
 
-- `POST /kamash/editmanually` — saves manually edited report HTML into the patient's Drive folder and
+All mounted under `/webhook/kamash` (e.g. `POST https://kamash-api.link-up.co.il/webhook/kamash/editmanually`):
+
+- `POST .../editmanually` — saves manually edited report HTML into the patient's Drive folder and
   updates the "אבחונים" sheet row's `גרסא אחרונה html` column.
-- `POST /kamash/updateTestToFix` — marks a "שאלוני הורים" row (matched by patient name, same fragile
-  key n8n used) as `הושלם` and refreshes its patient-detail columns.
-- `GET /kamash/pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
-- `GET /kamash/prevdiagnostics` — returns every row in "אבחונים", raw.
-- `POST /kamash/sendEmailWithDiagnosis` — sends the diagnosis PDF (already rendered client-side) to
+- `POST .../updateTestToFix` — marks a "שאלוני הורים" row (matched by patient name, same fragile key
+  n8n used) as `הושלם` and refreshes its patient-detail columns.
+- `GET .../pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
+- `GET .../prevdiagnostics` — returns every row in "אבחונים", raw.
+- `POST .../sendEmailWithDiagnosis` — sends the diagnosis PDF (already rendered client-side) to
   `?mail=`. **Bug fixed vs. n8n**: the original workflow unconditionally also CC'd a hardcoded test
   address on every send — that branch is dropped, so this now only ever sends to the real recipient.
   A request with no `mail` now fails with 400 instead of silently no-op'ing while the frontend shows a
   false success toast. Subject/body text is still placeholder copy carried over from n8n — real wording
   needs to come from the clinic (see `emailService.ts`).
-- `POST /kamash/step1` — accepts the patient form + audio recording (`audioFile` or `transcriptFile` —
-  both are always raw audio, the latter is a legacy/misleading field name), rejects formats Whisper
-  doesn't accept up front, creates the patient's Drive folder (named `patientName (jobId prefix)` —
-  fixes the n8n collision risk of naming folders from patient name alone), uploads the recording, and
-  appends the "אבחונים" row with `status: processing` before responding immediately with `{ jobid,
-  status }`. The rest of the pipeline (transcription cleanup → segmentation → per-section rewrite via
-  Claude → per-section HTML via GPT-4.1 → deterministic document assembly) runs in the background — see
+- `POST .../step1` — accepts the patient form + audio recording (`audioFile` or `transcriptFile` — both
+  are always raw audio, the latter is a legacy/misleading field name), rejects formats Whisper doesn't
+  accept up front, creates the patient's Drive folder (named `patientName (jobId prefix)` — fixes the
+  n8n collision risk of naming folders from patient name alone), uploads the recording, and appends the
+  "אבחונים" row with `status: processing` before responding immediately with `{ jobid, status }`. The
+  rest of the pipeline (transcription cleanup → segmentation → per-section rewrite via Claude →
+  per-section HTML via GPT-4.1 → deterministic document assembly) runs in the background — see
   `services/pipeline/step1Pipeline.ts`. Any thrown error at any stage flips the row to `status: failed`
   (`services/pipeline/errorHandler.ts`), replacing n8n's error-trigger workflow.
-- `POST /kamash/checkstatus` — looks up the row by `jobid`; once `status === 'done'`, downloads and
-  returns the final report HTML; otherwise returns just the status (covers `processing`/`processing2`/
-  `failed` — the frontend already treats anything non-`done`/non-`failed` as "keep polling").
+- `POST .../checkstatus` — looks up the row by `jobid`; once `status === 'done'`, downloads and returns
+  the final report HTML; otherwise returns just the status (covers `processing`/`processing2`/`failed`
+  — the frontend already treats anything non-`done`/non-`failed` as "keep polling").
 
 A boot-time sweep (`services/pipeline/staleJobSweep.ts`, wired into `index.ts`) flips any job stuck in
 `processing`/`processing2` for more than 30 minutes to `failed` — a self-healing improvement n8n never
 had, covering the case where the process itself dies mid-pipeline.
+
+CORS is wide open (`cors()` with no origin restriction) since the frontend is served from a different
+domain than this API — matching the n8n webhook nodes' own `"allowedOrigins": "*"` setting, not a new,
+looser policy introduced by this port.
 
 ## Setup
 
@@ -59,7 +67,8 @@ had, covering the case where the process itself dies mid-pipeline.
 
 ## Deploying
 
-Runs via `pm2` on the same server as the frontend's static build:
+Runs via `pm2` on the same server as the frontend's static build, listening on an internal port
+(`4000` by default) that's never exposed directly to the internet — only nginx reaches it:
 
 ```sh
 npm run build
@@ -67,13 +76,16 @@ pm2 start ecosystem.config.js
 pm2 save
 ```
 
-## Cutting an endpoint over from n8n
+## Going live on kamash-api.link-up.co.il
 
-Each endpoint is exposed at `POST /kamash/<name>` here, mirroring n8n's `kamash/<name>` webhook path.
-Point the corresponding nginx `location = /webhook/kamash/<name>` block (in the vhost that serves
-`n8n.link-up.co.il`) at this app's port instead of n8n's, then `nginx -s reload`. Re-comment and reload
-to roll back instantly — the frontend's hardcoded webhook URLs never change.
+1. Point a DNS record for `kamash-api.link-up.co.il` at this server.
+2. Install `deploy/nginx-kamash-api.conf` (see the comments in that file for the exact steps, including
+   running `certbot` to add TLS).
+3. Update the frontend's hardcoded webhook URLs (`src/lib/api.ts`, `src/pages/Dashboard.tsx`,
+   `src/pages/DiagnosisEditor.tsx`, `src/pages/NewDiagnosis.tsx` in the `machon_kamash` repo) from
+   `https://n8n.link-up.co.il/webhook/kamash/...` to `https://kamash-api.link-up.co.il/webhook/kamash/...`
+   — a pure hostname swap, since the path is identical.
+4. Deploy the frontend (push to `main` — see that repo's `deploy.yml`).
 
-`step1` and `checkstatus` should be cut over **together** in the same window — `checkstatus` reads
-exactly what `step1`'s background pipeline writes, so splitting them across n8n and this backend would
-mean checking status on a job that was created by the other system.
+n8n's own `kamash/*` workflows can stay in place afterwards as a rollback path (point the frontend's
+hostname back at `n8n.link-up.co.il` and redeploy) until confidence is established, then be retired.

@@ -12,7 +12,7 @@ import { diagnosesRepo } from "../src/services/sheetsService.js";
 
 const app = createApp();
 
-describe("GET /kamash/prevdiagnostics", () => {
+describe("GET /webhook/kamash/prevdiagnostics", () => {
   beforeEach(() => {
     vi.mocked(diagnosesRepo.findAll).mockReset();
   });
@@ -21,7 +21,7 @@ describe("GET /kamash/prevdiagnostics", () => {
     const rows = [{ jobid: "1", status: "done", "שם המאובחן": "ילד א" }];
     vi.mocked(diagnosesRepo.findAll).mockResolvedValue(rows);
 
-    const res = await request(app).get("/kamash/prevdiagnostics");
+    const res = await request(app).get("/webhook/kamash/prevdiagnostics");
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(rows);

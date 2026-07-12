@@ -30,7 +30,7 @@ import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
 const app = createApp();
 const fakeAudio = Buffer.from("fake webm bytes");
 
-describe("POST /kamash/step1", () => {
+describe("POST /webhook/kamash/step1", () => {
   beforeEach(() => {
     vi.mocked(createPatientFolder).mockReset().mockResolvedValue({
       fileId: "FOLDER_1",
@@ -47,7 +47,7 @@ describe("POST /kamash/step1", () => {
 
   it("creates the patient folder, appends a processing row, responds immediately, and kicks off the background pipeline", async () => {
     const res = await request(app)
-      .post("/kamash/step1")
+      .post("/webhook/kamash/step1")
       .field("patientName", "ילד א")
       .field("age", "8")
       .field("school", "בית ספר הגפן")
@@ -87,7 +87,7 @@ describe("POST /kamash/step1", () => {
 
   it("rejects an audio format Whisper doesn't accept", async () => {
     const res = await request(app)
-      .post("/kamash/step1")
+      .post("/webhook/kamash/step1")
       .field("patientName", "ילד א")
       .attach("audioFile", fakeAudio, { filename: "recording.mov", contentType: "video/quicktime" });
 
@@ -97,7 +97,7 @@ describe("POST /kamash/step1", () => {
   });
 
   it("rejects a request with no audio file at all", async () => {
-    const res = await request(app).post("/kamash/step1").field("patientName", "ילד א");
+    const res = await request(app).post("/webhook/kamash/step1").field("patientName", "ילד א");
 
     expect(res.status).toBe(400);
     expect(createPatientFolder).not.toHaveBeenCalled();

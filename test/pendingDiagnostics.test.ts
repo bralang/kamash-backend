@@ -12,7 +12,7 @@ import { parentQuestionnairesRepo } from "../src/services/sheetsService.js";
 
 const app = createApp();
 
-describe("GET /kamash/pendingdiagnostics", () => {
+describe("GET /webhook/kamash/pendingdiagnostics", () => {
   beforeEach(() => {
     vi.mocked(parentQuestionnairesRepo.findPending).mockReset();
   });
@@ -21,7 +21,7 @@ describe("GET /kamash/pendingdiagnostics", () => {
     const rows = [{ שם: "ילד א", סטטוס: "בהמתנה" }];
     vi.mocked(parentQuestionnairesRepo.findPending).mockResolvedValue(rows);
 
-    const res = await request(app).get("/kamash/pendingdiagnostics");
+    const res = await request(app).get("/webhook/kamash/pendingdiagnostics");
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(rows);
@@ -30,7 +30,7 @@ describe("GET /kamash/pendingdiagnostics", () => {
   it("returns an empty array when nothing is pending", async () => {
     vi.mocked(parentQuestionnairesRepo.findPending).mockResolvedValue([]);
 
-    const res = await request(app).get("/kamash/pendingdiagnostics");
+    const res = await request(app).get("/webhook/kamash/pendingdiagnostics");
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
