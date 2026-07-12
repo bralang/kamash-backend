@@ -10,6 +10,10 @@ vi.mock("../src/services/openaiService.js", () => ({
   transcribe: vi.fn(),
 }));
 
+vi.mock("../src/services/audioService.js", () => ({
+  ensureTranscribable: vi.fn(),
+}));
+
 vi.mock("../src/services/sheetsService.js", () => ({
   diagnosesRepo: {
     appendDiagnosis: vi.fn(),
@@ -22,7 +26,9 @@ vi.mock("../src/services/pipeline/step1Pipeline.js", () => ({
 
 import { createApp } from "../src/app.js";
 import { createPatientFolder, uploadBinary } from "../src/services/driveService.js";
+import { ensureTranscribable } from "../src/services/audioService.js";
 import { transcribe } from "../src/services/openaiService.js";
+import { HttpError } from "../src/lib/httpError.js";
 import { diagnosesRepo } from "../src/services/sheetsService.js";
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
 import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
@@ -41,6 +47,9 @@ describe("POST /webhook/kamash/step1", () => {
       link: "https://drive.google.com/file/d/REC_FILE_1/edit",
     });
     vi.mocked(transcribe).mockReset().mockResolvedValue("זה התמלול הגולמי");
+    vi.mocked(ensureTranscribable)
+      .mockReset()
+      .mockImplementation(async (buffer, filename) => ({ buffer, filename }));
     vi.mocked(diagnosesRepo.appendDiagnosis).mockReset().mockResolvedValue(undefined);
     vi.mocked(runStep1Pipeline).mockReset().mockResolvedValue(undefined);
   });
@@ -83,6 +92,36 @@ describe("POST /webhook/kamash/step1", () => {
         patient: expect.objectContaining({ name: "ילד א" }),
       }),
     );
+  });
+
+  it("transcribes the compressed audio but uploads the original to Drive", async () => {
+    const compressed = Buffer.from("compressed");
+    vi.mocked(ensureTranscribable).mockResolvedValue({ buffer: compressed, filename: "recording.ogg" });
+
+    const res = await request(app)
+      .post("/webhook/kamash/step1")
+      .field("patientName", "ילד א")
+      .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
+
+    expect(res.status).toBe(200);
+    expect(transcribe).toHaveBeenCalledWith(compressed, "recording.ogg");
+    expect(uploadBinary).toHaveBeenCalledWith("FOLDER_1", "recording.webm", fakeAudio, "audio/webm");
+  });
+
+  it("fails cleanly when compression fails", async () => {
+    vi.mocked(ensureTranscribable).mockRejectedValue(
+      new HttpError(413, "Audio file is too large to transcribe even after compression."),
+    );
+
+    const res = await request(app)
+      .post("/webhook/kamash/step1")
+      .field("patientName", "ילד א")
+      .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
+
+    expect(res.status).toBe(413);
+    expect(createPatientFolder).not.toHaveBeenCalled();
+    expect(diagnosesRepo.appendDiagnosis).not.toHaveBeenCalled();
+    expect(runStep1Pipeline).not.toHaveBeenCalled();
   });
 
   it("rejects an audio format Whisper doesn't accept", async () => {

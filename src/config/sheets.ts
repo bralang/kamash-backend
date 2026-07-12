@@ -84,6 +84,7 @@ export const SECTION_INSTRUCTIONS_COLUMNS = {
   SECTION_TITLE_HE: "שם הסעיף בעברית",
   EDITING_INSTRUCTIONS: "הוראות עריכה",
   FORMATTING_INSTRUCTIONS: "הוראות עיצוב",
+  ALLOWED_SUBHEADINGS: "כותרות משנה מותרות",
 } as const;
 
 export const GENERAL_RULES_COLUMNS = {

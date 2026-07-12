@@ -1,7 +1,7 @@
 import OpenAI, { toFile } from "openai";
 import { config } from "../config/env.js";
 import { HttpError } from "../lib/httpError.js";
-import type { PatientIntake, SegmentedDiagnosis } from "../types/diagnosis.js";
+import type { SegmentedDiagnosis } from "../types/diagnosis.js";
 
 const CHAT_MODEL = "gpt-4.1";
 const WHISPER_MODEL = "whisper-1";
@@ -51,19 +51,6 @@ const SEGMENTED_DIAGNOSIS_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    personal_details: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        name: { type: "string" },
-        age: { type: "string" },
-        grade: { type: "string" },
-        school: { type: "string" },
-        city: { type: "string" },
-        diagnosis_date: { type: "string" },
-      },
-      required: ["name", "age", "grade", "school", "city", "diagnosis_date"],
-    },
     referral_reason: { type: "string" },
     general_impression: { type: "string" },
     diagnosis_findings: { type: "string" },
@@ -75,7 +62,6 @@ const SEGMENTED_DIAGNOSIS_SCHEMA = {
     external_treatments: { type: "string" },
   },
   required: [
-    "personal_details",
     "referral_reason",
     "general_impression",
     "diagnosis_findings",
@@ -101,15 +87,12 @@ const SEGMENTATION_PROMPT = `קיבלת טקסט של אבחון קריאה.
 6. כל פריט מידע מהמקור צריך להופיע בחלק אחד בלבד, אין להכפיל את המידע מהמקור למספר סעיפים בפילוח
 7. בממצאי האבחון תכלול רק מדדים כמותיים של האבחון, שנבחנו במספרים בשטף ובקצב.`;
 
-export async function segmentToJson(cleanedTranscript: string, personalDetails: PatientIntake): Promise<SegmentedDiagnosis> {
+export async function segmentToJson(cleanedTranscript: string): Promise<SegmentedDiagnosis> {
   const openai = getClient();
   const prompt = `${SEGMENTATION_PROMPT}
 
 הטקסט:
-${cleanedTranscript}
-
-את הפרטים האישיים תקח מהקלט הזה:
-${JSON.stringify(personalDetails)}`;
+${cleanedTranscript}`;
 
   const completion = await openai.chat.completions.create({
     model: CHAT_MODEL,

@@ -1,4 +1,5 @@
 import { chatComplete } from "./openaiService.js";
+import type { PatientIntake } from "../types/diagnosis.js";
 
 export interface SectionToHtmlParams {
   sectionTitle: string;
@@ -74,6 +75,39 @@ HTML בלבד.`;
 export async function sectionToHtml(params: SectionToHtmlParams): Promise<string> {
   const html = await chatComplete({ user: SECTION_HTML_PROMPT(params) });
   return html.trim();
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const PERSONAL_DETAILS_TITLE = "פרטים אישיים";
+
+/** Deterministic (LLM-free) personal-details section — built straight from the intake
+ * form fields so no transcript content can leak in. Mirrors the structural rules the
+ * section-HTML prompt mandates (section wrapper, h2 title, one p row per field). */
+export function buildPersonalDetailsHtml(patient: PatientIntake): string {
+  const fields: [label: string, value: string][] = [
+    ["שם", patient.name],
+    ["גיל", patient.age],
+    ["מקום לימודים", patient.school],
+    ["כיתה", patient.grade],
+    ["עיר מגורים", patient.city],
+    ["תאריך אבחון", patient.date],
+  ];
+  const rows = fields
+    .filter(([, value]) => value.trim() !== "")
+    .map(([label, value]) => `  <p><strong>${label}:</strong> ${escapeHtml(value.trim())}</p>`)
+    .join("\n");
+  return `<section class="diagnosis-section" data-section="${PERSONAL_DETAILS_TITLE}">
+  <h2>${PERSONAL_DETAILS_TITLE}</h2>
+${rows}
+</section>`;
 }
 
 /** Deterministic (LLM-free) final assembly — matches the live-wired "Code in JavaScript5"

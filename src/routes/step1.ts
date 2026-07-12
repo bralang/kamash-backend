@@ -5,6 +5,7 @@ import { upload } from "../middleware/upload.js";
 import { HttpError } from "../lib/httpError.js";
 import { generateJobId } from "../lib/ids.js";
 import { createPatientFolder, uploadBinary } from "../services/driveService.js";
+import { ensureTranscribable } from "../services/audioService.js";
 import { transcribe } from "../services/openaiService.js";
 import { diagnosesRepo } from "../services/sheetsService.js";
 import { runStep1Pipeline } from "../services/pipeline/step1Pipeline.js";
@@ -67,12 +68,16 @@ step1Router.post(
       );
     }
 
+    // Compress before creating any Drive/sheet state so a compression failure
+    // leaves no orphan folder or row. The original file still goes to Drive as-is.
+    const transcribable = await ensureTranscribable(record.buffer, record.originalname);
+
     const jobId = generateJobId();
     const folder = await createPatientFolder(fields.patientName, jobId);
 
     const [uploaded, transcript] = await Promise.all([
       uploadBinary(folder.fileId, record.originalname, record.buffer, record.mimetype),
-      transcribe(record.buffer, record.originalname),
+      transcribe(transcribable.buffer, transcribable.filename),
     ]);
 
     await diagnosesRepo.appendDiagnosis({
