@@ -6,6 +6,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
 
   GOOGLE_SERVICE_ACCOUNT_KEY_PATH: z.string().min(1, "GOOGLE_SERVICE_ACCOUNT_KEY_PATH is required"),
+  // Service accounts have zero Drive storage quota of their own, so Drive writes (folder/file
+  // creation) fail with "Service Accounts do not have storage quota" unless the account
+  // impersonates a real Workspace user via domain-wide delegation. This must be a real mailbox
+  // in the link-up.co.il Workspace, authorized for this service account's Client ID in
+  // admin.google.com > Security > API Controls > Domain-wide Delegation.
+  GOOGLE_IMPERSONATED_USER_EMAIL: z.string().min(1, "GOOGLE_IMPERSONATED_USER_EMAIL is required"),
 
   // Not required yet — only needed once the step1/checkstatus/email endpoints are migrated.
   OPENAI_API_KEY: z.string().optional(),

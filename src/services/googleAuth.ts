@@ -10,6 +10,9 @@ function getAuth() {
     auth = new google.auth.GoogleAuth({
       keyFile: config.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
       scopes: SCOPES,
+      // Domain-wide delegation: impersonate a real Workspace mailbox so Drive writes use that
+      // user's storage quota instead of the service account's own (which is always zero).
+      clientOptions: { subject: config.GOOGLE_IMPERSONATED_USER_EMAIL },
     });
   }
   return auth;

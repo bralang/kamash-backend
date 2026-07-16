@@ -57,6 +57,14 @@ looser policy introduced by this port.
      - Spreadsheet "מכון קמש" (`1i52aS_uM8prV6ODSx8PkzO3tUMEnZbo1I1a1azoQe8s`)
      - Spreadsheet "מכון קמש הוראות" (`1EwcZ-GGSWM3EOyXaFSAHA07UC7-dm-CSCiFTLVWsW-c`)
      - Drive root folder `1McvYAEu97nBufa4po3gxfx6eiOdjmUzH`
+   - `GOOGLE_IMPERSONATED_USER_EMAIL` — a real Workspace mailbox (e.g. `bracha@link-up.co.il`) that
+     this service account impersonates via **domain-wide delegation**. Required because service
+     accounts have zero Drive storage quota of their own — without impersonation, any Drive write
+     (`createPatientFolder`, `uploadBinary`, `uploadText`, `createDoc`) fails with `"Service Accounts
+     do not have storage quota"`. A Workspace **Super Admin** must authorize this service account's
+     numeric Client ID (found in its Google Cloud Console details) at
+     admin.google.com → Security → API Controls → Domain-wide Delegation, with scopes
+     `https://www.googleapis.com/auth/drive` and `https://www.googleapis.com/auth/spreadsheets`.
    - `OPENAI_API_KEY` — needs Whisper (audio transcription) + chat completions with `json_schema`
      structured output.
    - `ANTHROPIC_API_KEY` — needs access to the model in `services/anthropicService.ts`
