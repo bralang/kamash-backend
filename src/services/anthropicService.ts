@@ -95,9 +95,12 @@ export async function rewriteSection(params: RewriteSectionParams): Promise<stri
     system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules, params.allowedSubheadings?.trim() ?? ""),
     messages: [{ role: "user", content: TASK_PROMPT_TEMPLATE(params.sectionText, params.patient) }],
   });
-  const block = message.content[0];
-  if (!block || block.type !== "text") {
+  // claude-sonnet-5 returns a `thinking` block first (extended thinking is emitted
+  // even when display is "omitted"), so content[0] is not necessarily the text —
+  // find the text block rather than assuming index 0.
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
     throw new Error("Anthropic rewrite returned no text content");
   }
-  return block.text;
+  return textBlock.text;
 }

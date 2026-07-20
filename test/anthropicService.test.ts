@@ -59,4 +59,16 @@ describe("rewriteSection", () => {
     expect(system).toContain("הוראות עריכה:\nערוך בקצרה");
     expect(system).toContain("כללי לשון כלליים");
   });
+
+  it("returns the text block even when claude-sonnet-5 emits a thinking block first", async () => {
+    createMock.mockReset().mockResolvedValue({
+      content: [
+        { type: "thinking", thinking: "", signature: "abc" },
+        { type: "text", text: "טקסט ערוך" },
+      ],
+    });
+
+    const result = await rewriteSection(baseParams);
+    expect(result).toBe("טקסט ערוך");
+  });
 });
