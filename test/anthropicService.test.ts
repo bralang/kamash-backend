@@ -7,7 +7,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 vi.mock("../src/config/env.js", () => ({
-  config: { ANTHROPIC_API_KEY: "test-key" },
+  config: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_MODEL: "claude-sonnet-5", ANTHROPIC_MAX_TOKENS: 4096 },
 }));
 
 import { rewriteSection } from "../src/services/anthropicService.js";

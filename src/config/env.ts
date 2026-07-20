@@ -16,6 +16,8 @@ const envSchema = z.object({
   // Not required yet — only needed once the step1/checkstatus/email endpoints are migrated.
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-5"),
+  ANTHROPIC_MAX_TOKENS: z.coerce.number().default(4096),
   GMAIL_OAUTH_CLIENT_ID: z.string().optional(),
   GMAIL_OAUTH_CLIENT_SECRET: z.string().optional(),
   GMAIL_OAUTH_REFRESH_TOKEN: z.string().optional(),

@@ -67,9 +67,11 @@ looser policy introduced by this port.
      `https://www.googleapis.com/auth/drive` and `https://www.googleapis.com/auth/spreadsheets`.
    - `OPENAI_API_KEY` — needs Whisper (audio transcription) + chat completions with `json_schema`
      structured output.
-   - `ANTHROPIC_API_KEY` — needs access to the model in `services/anthropicService.ts`
-     (`claude-sonnet-4-6` per the n8n export — **verify this is still a valid model id** before relying
-     on it in production).
+   - `ANTHROPIC_API_KEY` — needs access to the model set via `ANTHROPIC_MODEL`.
+   - `ANTHROPIC_MODEL` — optional, defaults to `claude-sonnet-5`. (The n8n export originally used
+     `claude-sonnet-4-6`, which is not a valid model id — this caused every section rewrite to fail
+     in production until the default was corrected.)
+   - `ANTHROPIC_MAX_TOKENS` — optional, defaults to `4096`.
    - `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` / `GMAIL_OAUTH_REFRESH_TOKEN` — only needed
      for `sendEmailWithDiagnosis`.
 3. `npm run dev` (watches + runs via `tsx`), or `npm run build && npm start` for a production-style run.

@@ -2,11 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/env.js";
 import { HttpError } from "../lib/httpError.js";
 
-// Verify this is still a valid API model id before relying on it in production — carried
-// over from the n8n export as-is. See migration plan "Open items".
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 4096;
-
 let client: Anthropic | undefined;
 
 function getClient(): Anthropic {
@@ -95,8 +90,8 @@ OUTPUT
 export async function rewriteSection(params: RewriteSectionParams): Promise<string> {
   const anthropic = getClient();
   const message = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
+    model: config.ANTHROPIC_MODEL,
+    max_tokens: config.ANTHROPIC_MAX_TOKENS,
     system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules, params.allowedSubheadings?.trim() ?? ""),
     messages: [{ role: "user", content: TASK_PROMPT_TEMPLATE(params.sectionText, params.patient) }],
   });
