@@ -71,4 +71,22 @@ describe("rewriteSection", () => {
     const result = await rewriteSection(baseParams);
     expect(result).toBe("טקסט ערוך");
   });
+
+  it("sends the request with thinking disabled", async () => {
+    await rewriteSection(baseParams);
+
+    const call = createMock.mock.calls.at(-1)?.[0];
+    expect(call?.thinking).toEqual({ type: "disabled" });
+  });
+
+  it("throws an error naming stop_reason and block types when no text block is returned", async () => {
+    createMock.mockReset().mockResolvedValue({
+      stop_reason: "max_tokens",
+      content: [{ type: "thinking", thinking: "", signature: "abc" }],
+    });
+
+    await expect(rewriteSection(baseParams)).rejects.toThrow(
+      "Anthropic rewrite returned no text content (stop_reason: max_tokens, blocks: thinking)",
+    );
+  });
 });

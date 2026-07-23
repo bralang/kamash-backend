@@ -92,15 +92,21 @@ export async function rewriteSection(params: RewriteSectionParams): Promise<stri
   const message = await anthropic.messages.create({
     model: config.ANTHROPIC_MODEL,
     max_tokens: config.ANTHROPIC_MAX_TOKENS,
+    // claude-sonnet-5 runs adaptive thinking when `thinking` is omitted, and thinking
+    // tokens count against max_tokens — long thinking could exhaust the budget and
+    // return no text block at all. This is a linguistic rewrite task that doesn't
+    // need deep reasoning, so disable thinking (matches the pre-sonnet-5 behavior).
+    thinking: { type: "disabled" },
     system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules, params.allowedSubheadings?.trim() ?? ""),
     messages: [{ role: "user", content: TASK_PROMPT_TEMPLATE(params.sectionText, params.patient) }],
   });
-  // claude-sonnet-5 returns a `thinking` block first (extended thinking is emitted
-  // even when display is "omitted"), so content[0] is not necessarily the text —
-  // find the text block rather than assuming index 0.
+  // Even with thinking disabled, find the text block rather than assuming index 0.
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Anthropic rewrite returned no text content");
+    const blockTypes = message.content.map((b) => b.type).join(", ") || "none";
+    throw new Error(
+      `Anthropic rewrite returned no text content (stop_reason: ${message.stop_reason}, blocks: ${blockTypes})`,
+    );
   }
   return textBlock.text;
 }
