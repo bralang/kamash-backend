@@ -7,8 +7,8 @@ for full background on the n8n workflows being ported.
 All 6 in-scope endpoints have been migrated and are served from a dedicated API subdomain,
 **`https://kamash-api.link-up.co.il`**, cutting over from n8n all at once rather than gradually — the
 path after the domain is kept identical to the old n8n webhook path (`/webhook/kamash/<name>`), so
-switching the frontend over is purely a hostname swap. `updatemail` is a later addition with no n8n
-counterpart.
+switching the frontend over is purely a hostname swap. `updatemail` and `deletediagnosis` are later
+additions with no n8n counterparts.
 
 > **Deploys** run via GitHub Actions on push to the `main` branch — see
 > [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
@@ -27,6 +27,15 @@ All mounted under `/webhook/kamash` (e.g. `POST https://kamash-api.link-up.co.il
   address. An empty `mail` clears the cell rather than being ignored; a non-empty one must parse as an
   address (400 otherwise) so a typo fails here rather than silently at send time. **No n8n equivalent** —
   new endpoint.
+- `POST .../deletediagnosis` — removes a diagnosis from the dashboard: moves the row's תיקיה folder
+  (and everything in it) to Drive's trash, then sets `status` to `deleted`, a value no pipeline stage
+  ever produces so it cannot collide with `processing`/`processing2`/`done`/`failed`. The sheet write is
+  awaited before responding, because the frontend reloads the list as soon as it sees a 2xx. A folder
+  that is already gone (deleted by hand) or a row with no תיקיה link is logged and still marked
+  `deleted` — otherwise such a row could never be cleared from the list. A *real* Drive failure
+  (permissions, network) does fail the request, leaving the row in place rather than hiding it while
+  its files survive. **Deliberately a trash, not a permanent delete** (`driveService.trashFolder`), so a
+  mis-click stays recoverable. **No n8n equivalent** — new endpoint.
 - `GET .../pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
 - `GET .../prevdiagnostics` — returns every row in "אבחונים", raw.
 - `POST .../sendEmailWithDiagnosis` — sends the diagnosis PDF (already rendered client-side) to

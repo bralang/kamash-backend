@@ -90,3 +90,31 @@ export async function downloadFileText(fileIdOrLink: string): Promise<string> {
   const { data } = await drive.files.get({ fileId, alt: "media" }, { responseType: "text" });
   return data as unknown as string;
 }
+
+/** googleapis surfaces Drive's HTTP status on `code` (and sometimes `status`). */
+function isNotFoundError(error: unknown): boolean {
+  const err = error as { code?: unknown; status?: unknown } | null;
+  return err?.code === 404 || err?.status === 404 || err?.code === "404";
+}
+
+/**
+ * Moves a folder to the impersonated Workspace user's Drive trash, taking everything
+ * inside it along. Deliberately a trash rather than a permanent `files.delete`: these
+ * folders hold the only copy of a patient's recording and reports, and a mis-click in
+ * the dashboard should be recoverable. Swap to `drive.files.delete({ fileId })` if the
+ * clinic wants deletion to be irreversible.
+ *
+ * Returns false when the folder is already gone — the caller decides whether that is an
+ * error (for deletediagnosis it isn't; see that route).
+ */
+export async function trashFolder(folderIdOrLink: string): Promise<boolean> {
+  const folderId = folderIdOrLink.startsWith("http") ? parseFileIdFromLink(folderIdOrLink) : folderIdOrLink;
+  const drive = getDriveClient();
+  try {
+    await drive.files.update({ fileId: folderId, requestBody: { trashed: true } });
+    return true;
+  } catch (error) {
+    if (isNotFoundError(error)) return false;
+    throw error;
+  }
+}

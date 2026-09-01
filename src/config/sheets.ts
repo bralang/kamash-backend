@@ -97,6 +97,9 @@ export const DiagnosisStatus = {
   PROCESSING2: "processing2",
   DONE: "done",
   FAILED: "failed",
+  /** Set by /kamash/deletediagnosis. The dashboard filters these rows out; no pipeline
+   * stage ever transitions into or out of it, so it cannot collide with the others. */
+  DELETED: "deleted",
 } as const;
 
 export type DiagnosisStatusValue = (typeof DiagnosisStatus)[keyof typeof DiagnosisStatus];

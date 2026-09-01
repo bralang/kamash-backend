@@ -25,3 +25,13 @@ export function buildFileLink(fileId: string): string {
 export function buildFolderLink(folderId: string): string {
   return `https://drive.google.com/drive/u/0/folders/${folderId}`;
 }
+
+/** Non-throwing variant, for callers that can carry on without an id
+ * (e.g. deleting a diagnosis whose תיקיה cell is empty or malformed). */
+export function tryParseFileIdFromLink(link: string): string | null {
+  try {
+    return parseFileIdFromLink(link);
+  } catch {
+    return null;
+  }
+}
