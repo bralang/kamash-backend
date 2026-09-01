@@ -5,7 +5,7 @@ Node/Express + TypeScript backend replacing the n8n workflows behind **עורכ�
 for full background on the n8n workflows being ported and the endpoint-by-endpoint cutover strategy.
 
 All 6 in-scope endpoints have now been migrated (see below); everything not yet cut over in nginx
-still runs on n8n in the meantime.
+still runs on n8n in the meantime. `updatemail` is a later addition with no n8n counterpart.
 
 > **Deploys** run via GitHub Actions on push to the `main` branch — see
 > [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
@@ -16,6 +16,12 @@ still runs on n8n in the meantime.
   updates the "אבחונים" sheet row's `גרסא אחרונה html` column.
 - `POST /kamash/updateTestToFix` — marks a "שאלוני הורים" row (matched by patient name, same fragile
   key n8n used) as `הושלם` and refreshes its patient-detail columns.
+- `POST /kamash/updatemail` — sets the "אבחונים" row (matched by `jobid`) `כתובת מייל לשליחת אבחון`
+  column from `{ jobId, mail }`. This is the column `prevdiagnostics` serves and the one the frontend
+  hands to `sendEmailWithDiagnosis`, so it is the one that has to change for a resend to reach the new
+  address. An empty `mail` clears the cell rather than being ignored; a non-empty one must parse as an
+  address (400 otherwise) so a typo fails here rather than silently at send time. **No n8n equivalent** —
+  new endpoint, so there is nothing to cut over for it in nginx.
 - `GET /kamash/pendingdiagnostics` — returns "שאלוני הורים" rows where `סטטוס == בהמתנה`, raw.
 - `GET /kamash/prevdiagnostics` — returns every row in "אבחונים", raw.
 - `POST /kamash/sendEmailWithDiagnosis` — sends the diagnosis PDF (already rendered client-side) to
@@ -32,7 +38,9 @@ still runs on n8n in the meantime.
   status }`. The rest of the pipeline (transcription cleanup → segmentation → per-section rewrite via
   Claude → per-section HTML via GPT-4.1 → deterministic document assembly) runs in the background — see
   `services/pipeline/step1Pipeline.ts`. Any thrown error at any stage flips the row to `status: failed`
-  (`services/pipeline/errorHandler.ts`), replacing n8n's error-trigger workflow.
+  (`services/pipeline/errorHandler.ts`), replacing n8n's error-trigger workflow. The assembled document's
+  CSS is otherwise byte-identical to n8n's, with **one added rule vs. n8n**: `h4` (16px), so a section
+  whose `הוראות עיצוב` ask for a heading below `h3` renders on-scale instead of at browser defaults.
 - `POST /kamash/checkstatus` — looks up the row by `jobid`; once `status === 'done'`, downloads and
   returns the final report HTML; otherwise returns just the status (covers `processing`/`processing2`/
   `failed` — the frontend already treats anything non-`done`/non-`failed` as "keep polling").

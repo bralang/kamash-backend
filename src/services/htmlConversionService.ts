@@ -37,7 +37,7 @@ TASK
 7. הוסף ל-section class קבוע בשם diagnosis-section.
 8. הוסף ל-section attribute בשם data-section עם שם המקטע כפי שהתקבל.
 9. כותרת המקטע תהיה h2.
-10. תתי כותרות יהיו h3.
+10. תתי כותרות יהיו h3. אם הוראות העיצוב דורשות רמת כותרת נוספת מתחת ל-h3, או אם בטקסט יש בבירור רמת היררכיה שלישית, השתמש ב-h4. אל תשתמש ב-h5 או ב-h6.
 11. פסקאות יהיו p.
 12. רשימות יהיו ul/li.
 13. רשימות ממוספרות יהיו ol/li רק אם יש משמעות לסדר השלבים.
@@ -77,7 +77,11 @@ export async function sectionToHtml(params: SectionToHtmlParams): Promise<string
 }
 
 /** Deterministic (LLM-free) final assembly — matches the live-wired "Code in JavaScript5"
- * node from n8n's "המרת אבחון לhtml להצגה" workflow exactly, CSS included. */
+ * node from n8n's "המרת אבחון לhtml להצגה" workflow exactly, CSS included, with one
+ * intentional departure: an `h4` rule n8n never had, so a section can carry a third
+ * heading level when its הוראות עיצוב call for one (see rule 10 of SECTION_HTML_PROMPT).
+ * It continues the 30→22→18 scale at 16px and the halving margin rhythm of h2/h3; bold
+ * plus that rhythm — not size — is what separates it from body text. */
 export function assembleDocument(sectionHtmls: string[]): string {
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -121,6 +125,11 @@ export function assembleDocument(sectionHtmls: string[]): string {
     h3 {
       font-size: 18px;
       margin: 18px 0 8px;
+    }
+
+    h4 {
+      font-size: 16px;
+      margin: 14px 0 6px;
     }
 
     p {
