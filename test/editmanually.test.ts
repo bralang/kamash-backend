@@ -19,7 +19,7 @@ import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
 
 const app = createApp();
 
-describe("POST /kamash/editmanually", () => {
+describe("POST /webhook/kamash/editmanually", () => {
   beforeEach(() => {
     vi.mocked(diagnosesRepo.findByJobId).mockReset();
     vi.mocked(diagnosesRepo.updateByRowNumber).mockReset();
@@ -40,7 +40,7 @@ describe("POST /kamash/editmanually", () => {
     });
 
     const res = await request(app)
-      .post("/kamash/editmanually")
+      .post("/webhook/kamash/editmanually")
       .send({ jobId: "abc123", content: "<p>שלום</p>" });
 
     expect(res.status).toBe(200);
@@ -61,7 +61,7 @@ describe("POST /kamash/editmanually", () => {
     vi.mocked(diagnosesRepo.findByJobId).mockResolvedValue(null);
 
     const res = await request(app)
-      .post("/kamash/editmanually")
+      .post("/webhook/kamash/editmanually")
       .send({ jobId: "does-not-exist", content: "<p>x</p>" });
 
     expect(res.status).toBe(404);
@@ -70,7 +70,7 @@ describe("POST /kamash/editmanually", () => {
   });
 
   it("rejects a request missing required fields", async () => {
-    const res = await request(app).post("/kamash/editmanually").send({ jobId: "abc123" });
+    const res = await request(app).post("/webhook/kamash/editmanually").send({ jobId: "abc123" });
     expect(res.status).toBe(400);
   });
 });

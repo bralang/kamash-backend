@@ -8,6 +8,9 @@ export interface SectionInstruction {
   sectionTitleHe: string;
   editingInstructions: string;
   formattingInstructions: string;
+  /** Raw multi-line cell text (closed sub-heading list), verbatim apart from trimming —
+   * the two-level structure (heading lines + bullet items) is passed to the prompt as-is. */
+  allowedSubheadings: string;
 }
 
 interface ConfigCache {
@@ -42,6 +45,7 @@ async function loadSectionInstructions(): Promise<SectionInstruction[]> {
     sectionTitleHe: row[SECTION_INSTRUCTIONS_COLUMNS.SECTION_TITLE_HE] ?? "",
     editingInstructions: row[SECTION_INSTRUCTIONS_COLUMNS.EDITING_INSTRUCTIONS] ?? "",
     formattingInstructions: row[SECTION_INSTRUCTIONS_COLUMNS.FORMATTING_INSTRUCTIONS] ?? "",
+    allowedSubheadings: (row[SECTION_INSTRUCTIONS_COLUMNS.ALLOWED_SUBHEADINGS] ?? "").trim(),
   }));
 }
 

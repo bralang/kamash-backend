@@ -24,7 +24,7 @@ function mockRow() {
   });
 }
 
-describe("POST /kamash/updatemail", () => {
+describe("POST /webhook/kamash/updatemail", () => {
   beforeEach(() => {
     vi.mocked(diagnosesRepo.findByJobId).mockReset();
     vi.mocked(diagnosesRepo.updateByRowNumber).mockReset();
@@ -34,7 +34,7 @@ describe("POST /kamash/updatemail", () => {
     mockRow();
 
     const res = await request(app)
-      .post("/kamash/updatemail")
+      .post("/webhook/kamash/updatemail")
       .send({ jobId: "abc123", mail: "parent@example.com" });
 
     expect(res.status).toBe(200);
@@ -49,7 +49,7 @@ describe("POST /kamash/updatemail", () => {
   it("clears the cell when mail is an empty string instead of skipping the write", async () => {
     mockRow();
 
-    const res = await request(app).post("/kamash/updatemail").send({ jobId: "abc123", mail: "" });
+    const res = await request(app).post("/webhook/kamash/updatemail").send({ jobId: "abc123", mail: "" });
 
     expect(res.status).toBe(200);
     expect(diagnosesRepo.updateByRowNumber).toHaveBeenCalledWith(42, {
@@ -61,7 +61,7 @@ describe("POST /kamash/updatemail", () => {
     mockRow();
 
     const res = await request(app)
-      .post("/kamash/updatemail")
+      .post("/webhook/kamash/updatemail")
       .send({ jobId: "abc123", mail: "  parent@example.com  " });
 
     expect(res.status).toBe(200);
@@ -74,7 +74,7 @@ describe("POST /kamash/updatemail", () => {
     vi.mocked(diagnosesRepo.findByJobId).mockResolvedValue(null);
 
     const res = await request(app)
-      .post("/kamash/updatemail")
+      .post("/webhook/kamash/updatemail")
       .send({ jobId: "does-not-exist", mail: "parent@example.com" });
 
     expect(res.status).toBe(404);
@@ -82,14 +82,14 @@ describe("POST /kamash/updatemail", () => {
   });
 
   it("rejects a malformed address", async () => {
-    const res = await request(app).post("/kamash/updatemail").send({ jobId: "abc123", mail: "not-an-email" });
+    const res = await request(app).post("/webhook/kamash/updatemail").send({ jobId: "abc123", mail: "not-an-email" });
 
     expect(res.status).toBe(400);
     expect(diagnosesRepo.updateByRowNumber).not.toHaveBeenCalled();
   });
 
   it("rejects a request missing required fields", async () => {
-    const res = await request(app).post("/kamash/updatemail").send({ jobId: "abc123" });
+    const res = await request(app).post("/webhook/kamash/updatemail").send({ jobId: "abc123" });
 
     expect(res.status).toBe(400);
     expect(diagnosesRepo.updateByRowNumber).not.toHaveBeenCalled();

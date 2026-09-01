@@ -3,10 +3,10 @@ import { createDoc, uploadText } from "../driveService.js";
 import { chatComplete, segmentToJson } from "../openaiService.js";
 import { rewriteSection } from "../anthropicService.js";
 import { getGeneralRules, getSectionInstructions } from "../configRepo.js";
-import { sectionToHtml, assembleDocument } from "../htmlConversionService.js";
+import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../htmlConversionService.js";
 import { markJobFailed } from "./errorHandler.js";
 import { DIAGNOSES_COLUMNS, DiagnosisStatus } from "../../config/sheets.js";
-import type { PatientIntake, SegmentedDiagnosis } from "../../types/diagnosis.js";
+import type { PatientIntake } from "../../types/diagnosis.js";
 
 export interface Step1PipelineInput {
   jobId: string;
@@ -35,20 +35,8 @@ const CLEANUP_SYSTEM_PROMPT = `המטרה: ניקוי תמלול בלבד.
 הטקסט הוא מתוך אבחון קריאה לילדים במכון קמ"ש.
 המונחים עשויים לכלול מושגים כמו: מודעות פונולוגית, שליפה, קידוד שמיעתי, שטף קריאה, תנועות, צירופים וכדומה.`;
 
-/** Flattens the segmented diagnosis into a uniform section-key → text map, matching
- * n8n's own `Object.entries(inputData)` iteration — personal_details is included as a
- * first-class section (serialized to JSON text) exactly like the other 9 fields, since
- * the source workflow rewrites and formats it through the very same per-section pipeline. */
-function toSectionTextMap(segmented: SegmentedDiagnosis): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const [key, value] of Object.entries(segmented)) {
-    map[key] = typeof value === "string" ? value : JSON.stringify(value);
-  }
-  return map;
-}
-
 function isMeaningful(text: string | undefined): text is string {
-  return Boolean(text && text.trim() && text.trim() !== "{}");
+  return Boolean(text && text.trim());
 }
 
 export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void> {
@@ -65,16 +53,16 @@ export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void>
     });
     await createDoc(folderId, `ניקוי תמלול ${patient.name}`, cleanedTranscript);
 
-    // 3. Segment into the fixed JSON schema.
-    const segmented = await segmentToJson(cleanedTranscript, patient);
+    // 3. Segment into the fixed JSON schema (personal details are NOT extracted here —
+    //    they are built deterministically from the intake form in step 5).
+    const segmented = await segmentToJson(cleanedTranscript);
     await uploadText(folderId, `חלוקה למקטעים-${jobId}.json`, JSON.stringify(segmented, null, 2), "application/json");
     await diagnosesRepo.updateByJobId(jobId, { [DIAGNOSES_COLUMNS.STATUS]: DiagnosisStatus.PROCESSING2 });
 
     // 4. Rewrite each non-empty section via Claude (formerly sub-workflow "עריכה ראשונית").
-    const sectionTexts = toSectionTextMap(segmented);
     const generalRules = await getGeneralRules();
     const rewritten: Record<string, string> = {};
-    for (const [key, text] of Object.entries(sectionTexts)) {
+    for (const [key, text] of Object.entries(segmented)) {
       if (!isMeaningful(text)) continue;
       const instructions = await getSectionInstructions(key);
       rewritten[key] = await rewriteSection({
@@ -82,6 +70,7 @@ export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void>
         editingInstructions: instructions?.editingInstructions ?? "",
         generalRules,
         patient: { name: patient.name, age: patient.age, school: patient.school, grade: patient.grade, city: patient.city },
+        allowedSubheadings: instructions?.allowedSubheadings ?? "",
       });
     }
     const rewrittenFile = await uploadText(
@@ -94,8 +83,9 @@ export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void>
     await diagnosesRepo.updateByJobId(jobId, { [DIAGNOSES_COLUMNS.LATEST_VERSION]: rewrittenFile.link });
 
     // 5. Convert each rewritten section to HTML (formerly sub-workflow "המרת אבחון לhtml להצגה"),
-    //    then assemble deterministically (no LLM) — matches the live-wired n8n graph exactly.
-    const sectionHtmls: string[] = [];
+    //    then assemble deterministically (no LLM). Personal details are seeded first,
+    //    built straight from the intake form — no LLM step touches them.
+    const sectionHtmls: string[] = [buildPersonalDetailsHtml(patient)];
     for (const [key, text] of Object.entries(rewritten)) {
       if (!isMeaningful(text)) continue;
       const instructions = await getSectionInstructions(key);

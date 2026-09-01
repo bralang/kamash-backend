@@ -21,12 +21,14 @@ vi.mock("../src/services/configRepo.js", () => ({
     sectionTitleHe: "סיבת הפנייה",
     editingInstructions: "ערוך בקצרה",
     formattingInstructions: "פסקה אחת",
+    allowedSubheadings: "קריאה:\n• חיזוק שטף הקריאה",
   }),
 }));
 
 vi.mock("../src/services/htmlConversionService.js", () => ({
   sectionToHtml: vi.fn().mockResolvedValue('<section class="diagnosis-section">...</section>'),
   assembleDocument: vi.fn().mockReturnValue("<html>full document</html>"),
+  buildPersonalDetailsHtml: vi.fn().mockReturnValue('<section class="diagnosis-section" data-section="פרטים אישיים">...</section>'),
 }));
 
 vi.mock("../src/services/sheetsService.js", () => ({
@@ -45,7 +47,7 @@ vi.mock("../src/services/pipeline/errorHandler.js", () => ({
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
 import { segmentToJson } from "../src/services/openaiService.js";
 import { rewriteSection } from "../src/services/anthropicService.js";
-import { sectionToHtml, assembleDocument } from "../src/services/htmlConversionService.js";
+import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../src/services/htmlConversionService.js";
 import { diagnosesRepo, versionsRepo } from "../src/services/sheetsService.js";
 import { markJobFailed } from "../src/services/pipeline/errorHandler.js";
 import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
@@ -53,7 +55,6 @@ import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
 const patient = { name: "ילד א", age: "8", school: "בית ספר הגפן", grade: "ג", city: "בני ברק", date: "2026-02-20" };
 
 const segmented = {
-  personal_details: { name: "ילד א", age: "8", grade: "ג", school: "בית ספר הגפן", city: "בני ברק", diagnosis_date: "2026-02-20" },
   referral_reason: "הופנה בשל קשיי קריאה",
   general_impression: "",
   diagnosis_findings: "שטף 30 הברות לדקה",
@@ -71,6 +72,9 @@ describe("runStep1Pipeline", () => {
     vi.mocked(rewriteSection).mockReset().mockResolvedValue("טקסט ערוך");
     vi.mocked(sectionToHtml).mockReset().mockResolvedValue('<section class="diagnosis-section">...</section>');
     vi.mocked(assembleDocument).mockReset().mockReturnValue("<html>full document</html>");
+    vi.mocked(buildPersonalDetailsHtml)
+      .mockReset()
+      .mockReturnValue('<section class="diagnosis-section" data-section="פרטים אישיים">...</section>');
     vi.mocked(diagnosesRepo.updateByJobId).mockReset().mockResolvedValue(undefined);
     vi.mocked(versionsRepo.appendVersion).mockReset().mockResolvedValue(undefined);
     vi.mocked(markJobFailed).mockReset().mockResolvedValue(undefined);
@@ -79,10 +83,24 @@ describe("runStep1Pipeline", () => {
   it("runs the full chain, skips empty sections, and marks the job done", async () => {
     await runStep1Pipeline({ jobId: "job-1", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
 
-    // Only the 3 non-empty sections (personal_details, referral_reason, diagnosis_findings)
-    // should have been rewritten and converted to HTML — the 7 empty ones skipped.
-    expect(rewriteSection).toHaveBeenCalledTimes(3);
-    expect(sectionToHtml).toHaveBeenCalledTimes(3);
+    // Segmentation no longer receives the patient — personal details never touch the LLM.
+    expect(segmentToJson).toHaveBeenCalledWith("תמלול נקי");
+
+    // Only the 2 non-empty sections (referral_reason, diagnosis_findings) should have
+    // been rewritten and converted to HTML — the 7 empty ones skipped.
+    expect(rewriteSection).toHaveBeenCalledTimes(2);
+    expect(sectionToHtml).toHaveBeenCalledTimes(2);
+
+    // The closed sub-heading list from the config sheet is passed through to the rewrite.
+    expect(rewriteSection).toHaveBeenCalledWith(
+      expect.objectContaining({ allowedSubheadings: "קריאה:\n• חיזוק שטף הקריאה" }),
+    );
+
+    // Personal details are built deterministically from the intake form and placed first.
+    expect(buildPersonalDetailsHtml).toHaveBeenCalledWith(patient);
+    const assembledSections = vi.mocked(assembleDocument).mock.calls[0]?.[0];
+    expect(assembledSections?.[0]).toBe('<section class="diagnosis-section" data-section="פרטים אישיים">...</section>');
+    expect(assembledSections).toHaveLength(3);
 
     expect(diagnosesRepo.updateByJobId).toHaveBeenCalledWith("job-1", { [DIAGNOSES_COLUMNS.STATUS]: "processing2" });
     expect(versionsRepo.appendVersion).toHaveBeenCalledWith("job-1", 0, "FILE_1");

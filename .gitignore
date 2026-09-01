@@ -4,3 +4,7 @@ dist/
 *.local
 service-account.json
 npm-debug.log*
+
+# Local Excel exports of the config spreadsheets (and their Excel lock files)
+*.xlsx
+~$*

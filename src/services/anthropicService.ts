@@ -2,11 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/env.js";
 import { HttpError } from "../lib/httpError.js";
 
-// Verify this is still a valid API model id before relying on it in production — carried
-// over from the n8n export as-is. See migration plan "Open items".
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 4096;
-
 let client: Anthropic | undefined;
 
 function getClient(): Anthropic {
@@ -32,9 +27,28 @@ export interface RewriteSectionParams {
   editingInstructions: string;
   generalRules: string;
   patient: PatientContext;
+  /** Closed sub-heading list (verbatim config-sheet cell). Empty/omitted → prompt unchanged. */
+  allowedSubheadings?: string;
 }
 
-const SYSTEM_PROMPT_TEMPLATE = (editingInstructions: string, generalRules: string) => `SYSTEM
+// Appended to the system prompt only when the section has a closed sub-heading list configured.
+const ALLOWED_SUBHEADINGS_TEMPLATE = (allowedSubheadings: string) => `
+
+כותרות משנה — רשימה סגורה וניסוחים סטנדרטיים:
+ברשימה הבאה, כל שורה ראשית היא כותרת משנה מותרת, והפריטים תחת כל כותרת הם ניסוחים סטנדרטיים לתכנים ששייכים לאותה כותרת.
+
+${allowedSubheadings}
+
+כללים מחייבים:
+1. כותרות המשנה חייבות להילקח אך ורק מהרשימה הזו, בניסוח המדויק שלהן, ללא כל שינוי.
+2. אסור להמציא כותרות משנה חדשות ואסור לשנות את נוסח הכותרות.
+3. השתמש רק בכותרות הרלוונטיות לתוכן שקיים בפועל בטקסט — בדרך כלל רק חלק מהכותרות יופיעו.
+4. כותרת שאין לה תוכן מתאים בטקסט — השמט אותה לחלוטין, אל תכתוב אותה ריקה.
+5. שבץ כל פריט מידע מהטקסט תחת הכותרת המתאימה לו.
+6. כאשר תוכן מהטקסט תואם לאחד הניסוחים הסטנדרטיים שתחת הכותרת — השתמש בניסוח הסטנדרטי המדויק מהרשימה.
+7. תוכן מהטקסט שאין לו ניסוח סטנדרטי מתאים ברשימה — נסח אותו מקצועית לפי שאר הכללים, תחת הכותרת המתאימה; אין להשמיט מידע.`;
+
+const SYSTEM_PROMPT_TEMPLATE = (editingInstructions: string, generalRules: string, allowedSubheadings: string) => `SYSTEM
 אתה עורך לשוני מקצועי לאבחונים של מכון קמ"ש.
 המשימה שלך היא לערוך טקסט תמלול לאבחון קריאה, בעברית מקצועית וברורה.
 שמור על סגנון מקצועי ותמציתי.
@@ -50,7 +64,7 @@ RULES:
 הוראות עריכה:
 ${editingInstructions}
 
-${generalRules}`;
+${generalRules}${allowedSubheadings ? ALLOWED_SUBHEADINGS_TEMPLATE(allowedSubheadings) : ""}`;
 
 const TASK_PROMPT_TEMPLATE = (sectionText: string, patient: PatientContext) => `INPUT
 תמלול גולמי:
@@ -76,14 +90,23 @@ OUTPUT
 export async function rewriteSection(params: RewriteSectionParams): Promise<string> {
   const anthropic = getClient();
   const message = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules),
+    model: config.ANTHROPIC_MODEL,
+    max_tokens: config.ANTHROPIC_MAX_TOKENS,
+    // claude-sonnet-5 runs adaptive thinking when `thinking` is omitted, and thinking
+    // tokens count against max_tokens — long thinking could exhaust the budget and
+    // return no text block at all. This is a linguistic rewrite task that doesn't
+    // need deep reasoning, so disable thinking (matches the pre-sonnet-5 behavior).
+    thinking: { type: "disabled" },
+    system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules, params.allowedSubheadings?.trim() ?? ""),
     messages: [{ role: "user", content: TASK_PROMPT_TEMPLATE(params.sectionText, params.patient) }],
   });
-  const block = message.content[0];
-  if (!block || block.type !== "text") {
-    throw new Error("Anthropic rewrite returned no text content");
+  // Even with thinking disabled, find the text block rather than assuming index 0.
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    const blockTypes = message.content.map((b) => b.type).join(", ") || "none";
+    throw new Error(
+      `Anthropic rewrite returned no text content (stop_reason: ${message.stop_reason}, blocks: ${blockTypes})`,
+    );
   }
-  return block.text;
+  return textBlock.text;
 }

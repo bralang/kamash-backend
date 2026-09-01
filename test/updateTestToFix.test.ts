@@ -14,7 +14,7 @@ import { PARENT_QUESTIONNAIRES_COLUMNS } from "../src/config/sheets.js";
 
 const app = createApp();
 
-describe("POST /kamash/updateTestToFix", () => {
+describe("POST /webhook/kamash/updateTestToFix", () => {
   beforeEach(() => {
     vi.mocked(parentQuestionnairesRepo.findByName).mockReset();
     vi.mocked(parentQuestionnairesRepo.updateByRowNumber).mockReset();
@@ -26,7 +26,7 @@ describe("POST /kamash/updateTestToFix", () => {
       row: { [PARENT_QUESTIONNAIRES_COLUMNS.NAME]: "ליי וינרג" },
     });
 
-    const res = await request(app).post("/kamash/updateTestToFix").send({
+    const res = await request(app).post("/webhook/kamash/updateTestToFix").send({
       patientName: "ליי וינרג",
       idNumber: "234567777",
       age: "7",
@@ -54,7 +54,7 @@ describe("POST /kamash/updateTestToFix", () => {
     vi.mocked(parentQuestionnairesRepo.findByName).mockResolvedValue(null);
 
     const res = await request(app)
-      .post("/kamash/updateTestToFix")
+      .post("/webhook/kamash/updateTestToFix")
       .send({ patientName: "מישהו שלא קיים", age: "5", school: "x", grade: "א", city: "y" });
 
     expect(res.status).toBe(404);
@@ -62,7 +62,7 @@ describe("POST /kamash/updateTestToFix", () => {
   });
 
   it("rejects a request missing the required patientName field", async () => {
-    const res = await request(app).post("/kamash/updateTestToFix").send({ age: "5" });
+    const res = await request(app).post("/webhook/kamash/updateTestToFix").send({ age: "5" });
     expect(res.status).toBe(400);
   });
 });
