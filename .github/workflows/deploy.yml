@@ -37,10 +37,15 @@ jobs:
       - name: Prepare release package
         run: |
           mkdir -p package
+          # package/ lives inside the source tree, so it must exclude itself:
+          # without this, rsync descends into the copy it is still writing and
+          # produces a half-written package/package/ that tar cannot read.
+          # The leading slash anchors the match to the transfer root.
           rsync -av \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='node_modules' \
+            --exclude='/package' \
             ./ package/
 
       - name: Upload release to server
