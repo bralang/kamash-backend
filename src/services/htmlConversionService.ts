@@ -1,4 +1,5 @@
 import { chatComplete } from "./openaiService.js";
+import { GROUP_HEADING_MARKER, stripGroupHeadingMarker } from "../lib/headingMarker.js";
 import type { PatientIntake } from "../types/diagnosis.js";
 
 export interface SectionToHtmlParams {
@@ -38,7 +39,8 @@ TASK
 7. הוסף ל-section class קבוע בשם diagnosis-section.
 8. הוסף ל-section attribute בשם data-section עם שם המקטע כפי שהתקבל.
 9. כותרת המקטע תהיה h2.
-10. תתי כותרות יהיו h3. אם הוראות העיצוב דורשות רמת כותרת נוספת מתחת ל-h3, או אם בטקסט יש בבירור רמת היררכיה שלישית, השתמש ב-h4. אל תשתמש ב-h5 או ב-h6.
+10. רמות הכותרות נקבעות לפי הסימון בטקסט: שורת כותרת שמתחילה ב-${GROUP_HEADING_MARKER} היא כותרת ראשית ותהפוך ל-h3, וכותרת שאינה מתחילה ב-${GROUP_HEADING_MARKER} ומופיעה תחת כותרת ראשית כזו תהפוך ל-h4. אם בטקסט אין אף שורה שמתחילה ב-${GROUP_HEADING_MARKER}, כל תתי הכותרות יהיו h3, אלא אם הוראות העיצוב דורשות רמה נוספת או שיש בטקסט בבירור רמת היררכיה שלישית. אל תשתמש ב-h5 או ב-h6.
+10א. הקידומת ${GROUP_HEADING_MARKER} היא סימון פנימי בלבד. הסר אותה מטקסט הכותרת ואל תכתוב אותה בפלט בשום מקום.
 11. פסקאות יהיו p.
 12. רשימות יהיו ul/li.
 13. רשימות ממוספרות יהיו ol/li רק אם יש משמעות לסדר השלבים.
@@ -72,9 +74,67 @@ TASK
 OUTPUT
 HTML בלבד.`;
 
+/** Normalises heading text for comparison: tags and entities out, Hebrew geresh and
+ * gershayim folded to ASCII quotes, whitespace collapsed, trailing colon or dash dropped. */
+function normaliseHeading(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/[\u05F4\u201C\u201D]/g, '"')
+    .replace(/[\u05F3\u2018\u2019]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[:\-\u2013\u2014]+$/, "")
+    .trim();
+}
+
+function isRedundantSubheading(heading: string, sectionTitle: string): boolean {
+  if (heading === "" || heading === sectionTitle) return true;
+  // Whole-word containment only, checked without a regex so heading text never has to be
+  // escaped. Both strings come from normaliseHeading, so every run of whitespace is already
+  // a single space and edge-anchoring is exact: "המלצות" inside "המלצות לטיפולים חיצוניים"
+  // is redundant, but "המלצות להתערבות" inside that same title is a real subheading.
+  const at = sectionTitle.indexOf(heading);
+  if (at === -1) return false;
+  const before = at === 0 ? " " : sectionTitle[at - 1];
+  const end = at + heading.length;
+  const after = end === sectionTitle.length ? " " : sectionTitle[end];
+  return before === " " && after === " ";
+}
+
+/** Departure from n8n: the section-HTML model intermittently emits a sub-heading that only
+ * restates the section's own h2 ("המלצות" under "המלצות לטיפולים חיצוניים"), which the clinic
+ * deleted by hand in every diagnosis we compared. Stripping it here rather than in the prompt
+ * makes it certain instead of merely likely. Deliberately conservative — it removes a heading
+ * only when the h2 already contains it word-for-word, so a paraphrase such as
+ * "סיכום קשיים שנצפו באבחון" under "הקשיים שנצפו" is left alone for a human to judge. */
+export function stripRedundantSubheadings(html: string, sectionTitle: string): string {
+  const title = normaliseHeading(sectionTitle);
+  if (title === "") return html;
+  return html.replace(/[ \t]*<(h3|h4)\b[^>]*>([\s\S]*?)<\/\1>[ \t]*\r?\n?/gi, (match, _tag, inner: string) =>
+    isRedundantSubheading(normaliseHeading(inner), title) ? "" : match,
+  );
+}
+
+/** Last-resort guard for the group-heading marker: rule 10א tells the model to consume the
+ * prefix, but a prompt is a request, not a guarantee, and a leaked "##" would surface inside a
+ * heading in the clinic's document. Strips it from h2/h3/h4 text wherever it survived. */
+export function stripGroupHeadingMarkers(html: string): string {
+  return html.replace(
+    /(<(h2|h3|h4)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi,
+    (_match, open: string, _tag, inner: string, close: string) =>
+      `${open}${stripGroupHeadingMarker(inner)}${close}`,
+  );
+}
+
 export async function sectionToHtml(params: SectionToHtmlParams): Promise<string> {
   const html = await chatComplete({ user: SECTION_HTML_PROMPT(params) });
-  return html.trim();
+  return stripRedundantSubheadings(stripGroupHeadingMarkers(html.trim()), params.sectionTitle);
 }
 
 function escapeHtml(text: string): string {
@@ -84,6 +144,21 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** The intake form posts `date` as an ISO `YYYY-MM-DD` string (what an
+ * `<input type="date">` yields), but the clinic writes dates as DD/MM/YYYY and edits
+ * every rendered document by hand to match. Convert at render time only — the value
+ * stored in the "אבחונים" sheet stays ISO, since that column is read back by n8n and
+ * by the frontend. Anything that is not exactly ISO passes through untouched rather
+ * than being reformatted on a guess. */
+export function formatDiagnosisDate(date: string): string {
+  const match = ISO_DATE.exec(date.trim());
+  if (!match) return date;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
 }
 
 const PERSONAL_DETAILS_TITLE = "פרטים אישיים";
@@ -98,7 +173,7 @@ export function buildPersonalDetailsHtml(patient: PatientIntake): string {
     ["מקום לימודים", patient.school],
     ["כיתה", patient.grade],
     ["עיר מגורים", patient.city],
-    ["תאריך אבחון", patient.date],
+    ["תאריך אבחון", formatDiagnosisDate(patient.date)],
   ];
   const rows = fields
     .filter(([, value]) => value.trim() !== "")

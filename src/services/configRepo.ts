@@ -8,8 +8,14 @@ export interface SectionInstruction {
   sectionTitleHe: string;
   editingInstructions: string;
   formattingInstructions: string;
-  /** Raw multi-line cell text (closed sub-heading list), verbatim apart from trimming —
-   * the two-level structure (heading lines + bullet items) is passed to the prompt as-is. */
+  /** Raw multi-line cell text (closed sub-heading list), verbatim apart from trimming — the
+   * structure is passed to the prompt as-is and interpreted there, never parsed here.
+   *
+   * Two shapes are valid. Flat: heading lines, each followed by its bullet items (standard
+   * phrasings). Grouped: the same, plus group headings prefixed with `GROUP_HEADING_MARKER`
+   * ("##") that gather the headings beneath them, which the section-HTML stage renders as h3
+   * over h4. A cell containing no "##" line is flat and behaves exactly as it always has, so
+   * rows written before grouping existed keep working unchanged. */
   allowedSubheadings: string;
 }
 
@@ -65,4 +71,16 @@ export async function getGeneralRules(): Promise<string> {
 export async function getSectionInstructions(sectionKey: string): Promise<SectionInstruction | null> {
   const { sections } = await loadConfig();
   return sections.find((s) => s.sectionKeyEn === sectionKey) ?? null;
+}
+
+/** Same cached config as `getSectionInstructions`, looked up by the Hebrew title
+ * instead of the English key. The assembled document carries only the Hebrew
+ * title — `step1Pipeline` writes it into each `<section data-section="...">` from
+ * `sectionTitleHe` — so a rewrite request originating in the editor can identify
+ * its section only this way. */
+export async function getSectionInstructionsByTitle(titleHe: string): Promise<SectionInstruction | null> {
+  const wanted = titleHe.trim();
+  if (!wanted) return null;
+  const { sections } = await loadConfig();
+  return sections.find((s) => s.sectionTitleHe.trim() === wanted) ?? null;
 }

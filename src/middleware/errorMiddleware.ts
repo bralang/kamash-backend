@@ -6,7 +6,9 @@ import { logger } from "../lib/logger.js";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorMiddleware(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
-    res.status(err.statusCode).json({ error: err.message });
+    // `code` is only present on errors that set it, so responses from every
+    // pre-existing endpoint are byte-identical to what they were.
+    res.status(err.statusCode).json(err.code ? { error: err.message, code: err.code } : { error: err.message });
     return;
   }
   if (err instanceof ZodError) {

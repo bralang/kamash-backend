@@ -45,7 +45,7 @@ vi.mock("../src/services/pipeline/errorHandler.js", () => ({
 }));
 
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
-import { segmentToJson } from "../src/services/openaiService.js";
+import { chatComplete, segmentToJson } from "../src/services/openaiService.js";
 import { rewriteSection } from "../src/services/anthropicService.js";
 import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../src/services/htmlConversionService.js";
 import { diagnosesRepo, versionsRepo } from "../src/services/sheetsService.js";
@@ -119,5 +119,28 @@ describe("runStep1Pipeline", () => {
     ).resolves.toBeUndefined();
 
     expect(markJobFailed).toHaveBeenCalledWith("job-2", expect.any(Error), "step1Pipeline");
+  });
+
+  // The transcript-cleanup glossary exists because Whisper mis-transcribed these exact
+  // terms in two separate real diagnoses. "חי"ת סופית" is not a Hebrew letter at all, and
+  // "ביסוס חושי" for "ויסות חושי" changes a clinical finding — both reached the editor.
+  it("sends the Kamash terminology glossary with the transcript cleanup call", async () => {
+    vi.mocked(segmentToJson).mockResolvedValue(segmented);
+
+    await runStep1Pipeline({ jobId: "job-3", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
+
+    const cleanupCall = vi.mocked(chatComplete).mock.calls[0]?.[0];
+    expect(cleanupCall?.user).toContain("תמלול גולמי");
+
+    const prompt = cleanupCall?.system ?? "";
+    expect(prompt).toContain('"כ"ף סופית"');
+    expect(prompt).toContain("ויסות חושי");
+    expect(prompt).toContain("ך ם ן ף ץ");
+    expect(prompt).toContain("[לא ברור]");
+
+    // The cleanup stage must still be forbidden from rewriting — the glossary is a
+    // correction list, not a licence to edit.
+    expect(prompt).toContain("ניקוי תמלול בלבד");
+    expect(prompt).toContain("שכתוב סגנוני");
   });
 });

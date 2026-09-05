@@ -17,6 +17,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5"),
+  // Sized for a full section rewrite and for a 4,000-char snippet rewrite, but only
+  // while both Anthropic calls keep thinking disabled — thinking tokens are drawn
+  // from this same budget. Raise it before enabling thinking anywhere.
   ANTHROPIC_MAX_TOKENS: z.coerce.number().default(4096),
   GMAIL_OAUTH_CLIENT_ID: z.string().optional(),
   GMAIL_OAUTH_CLIENT_SECRET: z.string().optional(),

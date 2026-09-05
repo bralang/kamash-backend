@@ -16,7 +16,8 @@ exports and is reproduced deliberately, often with a comment saying so. When som
 almost always faithful to n8n on purpose. Before "fixing" such a thing, confirm it isn't load-bearing for the
 frontend or n8n parity. Intentional *departures* from n8n are the few places called out explicitly in code
 comments and the README (folder naming, the dropped hardcoded email CC, 400-on-missing-mail, the stale-job
-sweep) — preserve those departures.
+sweep), plus the output-quality work in "Tuning output against the clinic's hand-edits" below — preserve
+those departures.
 
 ## Commands
 
@@ -43,7 +44,9 @@ Note the **ESM + NodeNext** setup: relative imports must carry the `.js` extensi
 Request flow: `index.ts` (listen + boot-time stale-job sweep) → `app.ts` (pino-http logging, JSON body limit,
 `errorMiddleware`) → `routes/index.ts` mounts each router under `/kamash`. Routes are thin: validate with a
 zod `bodySchema`, call services, respond. Errors thrown anywhere in an async handler reach `errorMiddleware`
-via the `asyncHandler` wrapper — throw `HttpError(status, msg)` for client-facing failures; a `ZodError`
+via the `asyncHandler` wrapper — throw `HttpError(status, msg)` for client-facing failures (an optional
+third `code` argument is echoed to the client next to the message, for failures the frontend must tell
+apart — only `rewritetext` uses it, and every other response is byte-identical to before); a `ZodError`
 auto-maps to 400; anything else is a logged 500.
 
 **Layering, strictly one-directional:** routes → services → (`config`, `lib`). Routes never touch Google/LLM
@@ -72,11 +75,12 @@ test strategy work.
 
 `services/pipeline/step1Pipeline.ts` is the background job (formerly a chain of n8n sub-workflows), run in the
 same process — not a queue:
-transcript cleanup (GPT-4.1, spelling/punctuation *only*) → segment into the fixed JSON schema
-(`openaiService.segmentToJson`, `status → processing2`) → per-section rewrite (Claude, `anthropicService`) →
-per-section HTML (GPT-4.1, `htmlConversionService.sectionToHtml`) → **deterministic** `assembleDocument`
-(no LLM — CSS is hardcoded to match n8n) → `status: done` with the HTML link. Intermediate artifacts are
-written to the patient's Drive folder at each stage.
+transcript cleanup (GPT-4.1, spelling/punctuation *only*, plus the glossary described below) → segment into
+the fixed JSON schema (`openaiService.segmentToJson`, `status → processing2`) → per-section rewrite (Claude,
+`anthropicService`) → per-section HTML (GPT-4.1, `htmlConversionService.sectionToHtml`, whose LLM output then
+passes through deterministic clean-up) → **deterministic** `assembleDocument` (no LLM — CSS is hardcoded to
+match n8n) → `status: done` with the HTML link. Intermediate artifacts are written to the patient's Drive
+folder at each stage.
 
 Failure handling replaces n8n's error-trigger workflow: any throw in the pipeline lands in
 `pipeline/errorHandler.markJobFailed` → `status: failed`. `checkstatus` reads exactly what this pipeline
@@ -84,13 +88,74 @@ writes — **step1 and checkstatus must be cut over from n8n together** (README)
 `pipeline/staleJobSweep` flips jobs stuck in `processing`/`processing2` > 30 min to `failed`, covering a
 mid-pipeline process crash.
 
+`rewritetext` is the one other endpoint that calls an LLM, but it is not a pipeline: it rephrases a single
+snippet the diagnostician selected in the editor and answers **synchronously** with `{ result }`, writing
+nothing to Sheets or Drive. It is capped accordingly (25s SDK timeout with `maxRetries: 1`, 4,000-char
+input limit, `lib/rateLimit.ts` per-jobId + per-process windows) and gated on the `jobId` resolving to a
+real row — see README. The heavy/asynchronous split above still holds for everything else.
+
+### Tuning output against the clinic's hand-edits
+Several prompt rules and post-processing steps exist because we diffed real pipeline output against the same
+document after the clinic edited it by hand, across two diagnoses, and encoded only what recurred in **both**.
+These are deliberate departures from n8n parity — n8n produced the same problems:
+
+- **Transcript glossary** (`CLEANUP_SYSTEM_PROMPT`): Whisper mis-transcribed the same clinical terms in both
+  diagnoses — "חי\"ת סופית", which is not a Hebrew letter at all, for "כ\"ף סופית", and "ביסוס חושי" for
+  "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
+  from rewriting. A word it cannot resolve is marked `[לא ברור]` instead of being smoothed over, and that
+  marker is meant to reach the editor.
+- **Section ownership** (`SEGMENTATION_PROMPT` rules 9–10): parent/teacher reports belong to
+  `referral_reason`, not `general_impression`; numeric targets belong to `goals`, not `home_practice`. Real
+  output crossed both boundaries despite the generic "one section only" rule 6.
+- **Deterministic clean-up inside `sectionToHtml`**: `stripRedundantSubheadings` drops a sub-heading the
+  section's own h2 already contains word-for-word — both diagnoses emitted "המלצות" under
+  "המלצות לטיפולים חיצוניים" and the clinic deleted it both times. It is conservative on purpose: a
+  paraphrase such as "סיכום קשיים שנצפו באבחון" under "הקשיים שנצפו" is left for a human, because matching
+  it needs fuzzy comparison and that is too blunt a tool to point at clinical headings.
+- **`formatDiagnosisDate`**: the intake form posts ISO `YYYY-MM-DD`, the clinic writes `DD/MM/YYYY`. The
+  conversion happens at render time only — the "אבחונים" sheet still stores ISO, because n8n and the
+  frontend read that column back. Name order is deliberately *not* corrected: there is one `שם המאובחן`
+  column, so swapping tokens would be guesswork on a clinical document.
+
+Diff at least two real before/after pairs before adding to this list. A pattern seen once is noise: of
+sixteen candidates from the first diagnosis two did not survive the second and were dropped rather than
+coded, and one "finding" turned out to be an artefact of the comparison script rather than the pipeline.
+
+### The `##` group-heading protocol
+`lib/headingMarker.ts` holds one string that two pipeline stages must agree on. A section's closed
+sub-heading list (the `כותרות משנה מותרות` config column) may prefix top-level group headings with `##`;
+`rewriteSection` carries the prefix through into its plain-text output, and `sectionToHtml` maps a prefixed
+heading to `h3`, an unprefixed one beneath it to `h4`, then strips the prefix.
+
+It exists because heading *level* is decided a stage later than heading *text*. With no marker the HTML stage
+has to infer the hierarchy, and it does so inconsistently: two real diagnoses ran the same
+"תוכנית עבודה למורה" section through the same prompt, and one came back correctly nested while the other
+flattened all eighteen headings to `h3`. A list containing no `##` line stays single-level and behaves exactly
+as it did before, so config rows written earlier keep working untouched. `stripGroupHeadingMarkers` runs
+unconditionally as a last-resort guard — the prompt asks the model to consume the prefix, but a leaked `##`
+would surface inside a heading in the clinic's document.
+
+Note the coupling this creates: a closed list is **closed**, so a heading missing from it cannot be produced
+and its content gets forced under a neighbouring heading instead. Extend the list before relying on it for a
+section whose full heading set has not been enumerated from real diagnoses.
+
 ### LLM services
 `openaiService.ts` (Whisper transcription, GPT-4.1 chat + `json_schema` structured segmentation) and
-`anthropicService.ts` (Claude section rewrite). Clients are lazily constructed and throw `HttpError(500)` if
-their API key is unset — that's why the step1/email keys are optional in `config/env.ts` while the Google key
-is required. The Hebrew prompts are ported verbatim from n8n; changing them changes clinical output. The
-Anthropic model id (`claude-sonnet-4-6`) was copied from the n8n export and is flagged in-code as needing
-verification before production reliance.
+`anthropicService.ts` (Claude — `rewriteSection` for the pipeline's per-section pass, `rewriteSnippet` for
+`rewritetext`). Clients are lazily constructed and throw `HttpError(500)` if their API key is unset —
+that's why the step1/email keys are optional in `config/env.ts` while the Google key is required. The
+Hebrew prompts began as verbatim ports from n8n and still are, apart from the additions listed under "Tuning
+output against the clinic's hand-edits"; changing them changes clinical output, so treat any part you did not
+come to deliberately as load-bearing. `rewriteSnippet` is the
+exception: it has no n8n ancestor, and it is deliberately *not* `rewriteSection` — that prompt opens with
+"תמלול גולמי:" and edits a raw Whisper transcript, so feeding finished clinical prose into it produces
+cleanup behavior rather than a rephrase.
+
+The model id comes from `ANTHROPIC_MODEL`, defaulting to `claude-sonnet-5`. The n8n export's own id
+(`claude-sonnet-4-6`) is not a valid model and failed every section rewrite in production until the default
+was corrected — don't reinstate it. Both Anthropic calls must keep `thinking: { type: "disabled" }`:
+claude-sonnet-5 runs adaptive thinking when the field is omitted, thinking tokens come out of
+`ANTHROPIC_MAX_TOKENS`, and a long think can exhaust the budget and return no text block at all.
 
 ## Testing conventions
 Two shapes, both under `test/` (mirroring `src/`): **route tests** drive `createApp()` with `supertest` and
