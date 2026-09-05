@@ -58,6 +58,23 @@ All mounted under `/webhook/kamash` (e.g. `POST https://kamash-api.link-up.co.il
 - `POST .../checkstatus` — looks up the row by `jobid`; once `status === 'done'`, downloads and returns
   the final report HTML; otherwise returns just the status (covers `processing`/`processing2`/`failed`
   — the frontend already treats anything non-`done`/non-`failed` as "keep polling").
+- `POST .../rewritetext` — rephrases one selected snippet of an already-edited report via Claude, for the
+  editor's "ניסוח מחדש בעזרת AI" action. Synchronous (a single paragraph takes seconds, and the
+  diagnostician is blocked in a modal), so unlike `step1` there is no job/polling pair. Takes
+  `{ jobId, shape, sectionTitle?, instruction?, presetId?, content, previous?, attempt? }` and returns
+  `{ result }` — the rewritten snippet and nothing else. `shape` (`text` | `flow` | `list`) is what the
+  editor captured and can therefore insert back, and it selects the output-structure rule in the prompt.
+  `sectionTitle` is the wrapping `<section data-section="...">` value; it resolves to that section's
+  `הוראות עריכה` via `configRepo.getSectionInstructionsByTitle` so a rephrase lands in the same register
+  as the rest of the document. **No n8n equivalent** — new endpoint.
+
+  Two protections this endpoint needs and the others don't, because it is the only one where an anonymous
+  caller can spend Anthropic credits (there is no auth anywhere in this API and CORS is open): `jobId` must
+  match a real "אבחונים" row (404 otherwise, checked before the model call), and `lib/rateLimit.ts` caps
+  30 requests per jobId and 200 per process per 5 minutes. Input over 4,000 characters is refused with
+  `TOO_LONG` before anything is sent. Errors carry a `code` (`TOO_LONG`, `EMPTY_INPUT`, `NOT_FOUND`,
+  `RATE_LIMITED`, `TIMEOUT`, `MODEL_ERROR`) alongside the usual `error` message, so the frontend can pick
+  the Hebrew wording; the message itself stays English for the logs.
 
 A boot-time sweep (`services/pipeline/staleJobSweep.ts`, wired into `index.ts`) flips any job stuck in
 `processing`/`processing2` for more than 30 minutes to `failed` — a self-healing improvement n8n never

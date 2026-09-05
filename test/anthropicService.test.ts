@@ -40,6 +40,38 @@ describe("rewriteSection", () => {
     expect(system).toContain("אסור להמציא כותרות משנה חדשות");
   });
 
+  it("explains both heading levels and demands the ## marker on group headings", async () => {
+    // Modelled on the real "תוכנית עבודה למורה" list, whose three groups the section-HTML
+    // stage flattened to a single level in one of the two diagnoses we compared.
+    const cell = [
+      "## קריאה",
+      "חיזוק הערוץ החזותי:",
+      "• תרגול תפיסת כיוונים",
+      "הקניית התנועות:",
+      "• הקניית תנועה אחת בלבד",
+      "",
+      "## עיבוד שמיעתי",
+      "מודעות פונולוגית:",
+      "• חיזוק צליל פותח וצליל סוגר",
+    ].join("\n");
+
+    await rewriteSection({ ...baseParams, allowedSubheadings: cell });
+
+    const system = lastSystemPrompt();
+    expect(system).toContain(cell);
+    expect(system).toContain("שורה שמתחילה ב-## היא כותרת ראשית");
+    expect(system).toContain("כתוב כותרת ראשית בפלט עם הקידומת ##");
+    expect(system).toContain("השמט גם אותה");
+  });
+
+  it("still describes a marker-free list as single-level, so existing sheet rows keep working", async () => {
+    const flatCell = "קריאה:\n• חיזוק שטף הקריאה\n\nכתיבה:\n• שיפור הכתב";
+
+    await rewriteSection({ ...baseParams, allowedSubheadings: flatCell });
+
+    expect(lastSystemPrompt()).toContain("אם אין ברשימה אף שורה שמתחילה ב-##, לסעיף יש רמת כותרות אחת בלבד");
+  });
+
   it("leaves the system prompt unchanged when allowedSubheadings is empty or whitespace", async () => {
     await rewriteSection({ ...baseParams, allowedSubheadings: "" });
     const emptySystem = lastSystemPrompt();
