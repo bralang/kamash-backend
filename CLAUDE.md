@@ -104,6 +104,15 @@ These are deliberate departures from n8n parity — n8n produced the same proble
   "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
   from rewriting. A word it cannot resolve is marked `[לא ברור]` instead of being smoothed over, and that
   marker is meant to reach the editor.
+
+  The list has two halves. The hardcoded one grew from those diffs plus terms the clinic reported outright
+  ("סיכול אותיות" for "שיכול אותיות"). The other is the clinic's own "מונחים קבועים" row in the config sheet,
+  pulled in by `getGeneralRule(FIXED_TERMS_RULE_TYPE)` — that row is part of `getGeneralRules()` too and so
+  reaches the per-section rewrite regardless; feeding it to cleanup as well is what applies it *before*
+  segmentation routes content it has already misread. **A wrong professional term is not a spelling error** —
+  "סיכול" is a correctly spelled Hebrew word in a plausible context, and no amount of "תקן שגיאות כתיב" in any
+  of the three prompts that carry it will catch one. Only a term list will, so a new term belongs in that
+  sheet row (clinic-editable, no deploy), not in a new prompt rule.
 - **Section ownership** (`SEGMENTATION_PROMPT` rules 9–10): parent/teacher reports belong to
   `referral_reason`, not `general_impression`; numeric targets belong to `goals`, not `home_practice`. Real
   output crossed both boundaries despite the generic "one section only" rule 6.

@@ -16,6 +16,8 @@ vi.mock("../src/services/anthropicService.js", () => ({
 
 vi.mock("../src/services/configRepo.js", () => ({
   getGeneralRules: vi.fn().mockResolvedValue("כללי לשון כלליים"),
+  getGeneralRule: vi.fn().mockResolvedValue("שיכול אותיות (ולא \"סיכול אותיות\")"),
+  FIXED_TERMS_RULE_TYPE: "מונחים קבועים",
   getSectionInstructions: vi.fn().mockResolvedValue({
     sectionKeyEn: "referral_reason",
     sectionTitleHe: "סיבת הפנייה",
@@ -45,6 +47,7 @@ vi.mock("../src/services/pipeline/errorHandler.js", () => ({
 }));
 
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
+import { getGeneralRule, FIXED_TERMS_RULE_TYPE } from "../src/services/configRepo.js";
 import { chatComplete, segmentToJson } from "../src/services/openaiService.js";
 import { rewriteSection } from "../src/services/anthropicService.js";
 import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../src/services/htmlConversionService.js";
@@ -78,6 +81,8 @@ describe("runStep1Pipeline", () => {
     vi.mocked(diagnosesRepo.updateByJobId).mockReset().mockResolvedValue(undefined);
     vi.mocked(versionsRepo.appendVersion).mockReset().mockResolvedValue(undefined);
     vi.mocked(markJobFailed).mockReset().mockResolvedValue(undefined);
+    vi.mocked(chatComplete).mockReset().mockResolvedValue("תמלול נקי");
+    vi.mocked(getGeneralRule).mockReset().mockResolvedValue('שיכול אותיות (ולא "סיכול אותיות")');
   });
 
   it("runs the full chain, skips empty sections, and marks the job done", async () => {
@@ -135,6 +140,7 @@ describe("runStep1Pipeline", () => {
     const prompt = cleanupCall?.system ?? "";
     expect(prompt).toContain('"כ"ף סופית"');
     expect(prompt).toContain("ויסות חושי");
+    expect(prompt).toContain("שיכול אותיות");
     expect(prompt).toContain("ך ם ן ף ץ");
     expect(prompt).toContain("[לא ברור]");
 
@@ -142,5 +148,30 @@ describe("runStep1Pipeline", () => {
     // correction list, not a licence to edit.
     expect(prompt).toContain("ניקוי תמלול בלבד");
     expect(prompt).toContain("שכתוב סגנוני");
+  });
+
+  // The clinic maintains its own term list in the config sheet; without this it reached only
+  // the per-section rewrite, three stages downstream, so segmentation routed content it had
+  // already read under the wrong term. A term like "סיכול אותיות" for "שיכול אותיות" is spelled
+  // correctly and cannot be caught by a generic "fix spelling" instruction — only by this list.
+  it("appends the clinic's fixed-terms row from the config sheet to the cleanup prompt", async () => {
+    await runStep1Pipeline({ jobId: "job-4", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
+
+    expect(getGeneralRule).toHaveBeenCalledWith(FIXED_TERMS_RULE_TYPE);
+    const prompt = vi.mocked(chatComplete).mock.calls[0]?.[0]?.system ?? "";
+    expect(prompt).toContain('שיכול אותיות (ולא "סיכול אותיות")');
+    expect(prompt).toContain("מונחים קבועים של המכון");
+    // The hardcoded glossary is additive, not replaced by the sheet.
+    expect(prompt).toContain("ויסות חושי");
+  });
+
+  it("leaves the cleanup prompt unchanged when the sheet has no fixed-terms row", async () => {
+    vi.mocked(getGeneralRule).mockResolvedValue("");
+
+    await runStep1Pipeline({ jobId: "job-5", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
+
+    const prompt = vi.mocked(chatComplete).mock.calls[0]?.[0]?.system ?? "";
+    expect(prompt).not.toContain("מונחים קבועים של המכון");
+    expect(prompt).toContain("ויסות חושי");
   });
 });
