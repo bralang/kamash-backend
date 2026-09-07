@@ -8,3 +8,7 @@ npm-debug.log*
 # Local Excel exports of the config spreadsheets (and their Excel lock files)
 *.xlsx
 ~$*
+
+# Written per deploy by .github/workflows/deploy.yml and served at
+# /webhook/kamash/version - never committed, or the stamp would go stale.
+release.json
