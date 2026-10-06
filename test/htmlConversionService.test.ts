@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  breakAccuracyInCells,
   buildPersonalDetailsHtml,
   formatDiagnosisDate,
   stripGroupHeadingMarkers,
@@ -134,6 +135,30 @@ describe("stripRedundantSubheadings", () => {
     const html = "<h2>ממצאי האבחון</h2>\n<table><tbody><tr><td>שיום אותיות</td><td></td></tr></tbody></table>";
 
     expect(stripRedundantSubheadings(html, "ממצאי האבחון")).toBe(html);
+  });
+});
+
+describe("breakAccuracyInCells", () => {
+  it("puts the accuracy figure on its own line", () => {
+    expect(breakAccuracyInCells("<td>50 שניות, דיוק 95 אחוז</td>")).toBe("<td>50 שניות,<br>דיוק 95 אחוז</td>");
+    expect(breakAccuracyInCells("<td>42 מילים בדקה,95%</td>")).toBe("<td>42 מילים בדקה,<br>95%</td>");
+  });
+
+  it("keeps the qualitative detail after the accuracy on the same line", () => {
+    expect(breakAccuracyInCells("<td>50 שניות, דיוק 90 אחוז, שגיאות ב-ב, כ</td>")).toBe(
+      "<td>50 שניות,<br>דיוק 90 אחוז, שגיאות ב-ב, כ</td>",
+    );
+  });
+
+  it("leaves numbers, existing breaks, other commas and non-cells alone", () => {
+    const untouched = [
+      "<td>1,000 מילים</td>",
+      "<td>50 שניות,<br>דיוק 95 אחוז</td>",
+      "<td>קריאה איטית, דיוק גבוה</td>",
+      "<th>זמן, דיוק 95%</th>",
+      "<p>50 שניות, דיוק 95 אחוז</p>",
+    ];
+    untouched.forEach((html) => expect(breakAccuracyInCells(html)).toBe(html));
   });
 });
 
