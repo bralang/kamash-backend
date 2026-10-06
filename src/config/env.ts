@@ -24,6 +24,19 @@ const envSchema = z.object({
   GMAIL_OAUTH_CLIENT_ID: z.string().optional(),
   GMAIL_OAUTH_CLIENT_SECRET: z.string().optional(),
   GMAIL_OAUTH_REFRESH_TOKEN: z.string().optional(),
+
+  // Signs the session cookie (HMAC-SHA256). Changing it logs every user out at once.
+  // Generate with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+  AUTH_SECRET: z.string().min(32, "AUTH_SECRET is required and must be at least 32 characters"),
+  // "false" only for the rollout window: requests without a valid session are logged
+  // and let through instead of rejected. Not z.coerce.boolean — that reads "false" as true.
+  AUTH_ENFORCE: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  // Comma-separated origins allowed to call the API with credentials. Unset means any
+  // https://*.link-up.co.il page plus the Vite dev server on localhost:8080.
+  AUTH_ALLOWED_ORIGINS: z.string().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

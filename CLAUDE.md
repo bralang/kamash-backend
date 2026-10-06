@@ -63,6 +63,24 @@ third `code` argument is echoed to the client next to the message, for failures 
 apart — only `rewritetext` uses it, and every other response is byte-identical to before); a `ZodError`
 auto-maps to 400; anything else is a logged 500.
 
+### Authentication — every new route is protected by default
+`routes/index.ts` mounts `authRouter` and `versionRouter`, then `requireAuth`, then everything else. **Add
+new routers below `requireAuth`.** `test/auth.test.ts` reads the router stack and fails for any route
+mounted after the guard that answers without a session, so this is enforced, not just documented.
+
+- Users: the "משתמשים" sheet (`USERS_COLUMNS`), read through `usersRepo` and cached 60s in
+  `services/authService.ts`. Passwords are scrypt hashes from `npm run hash-password` (`lib/password.ts`,
+  kept free of config imports so the script needs no `.env`). One permission level: signed in or not.
+- Session: a stateless `payload.HMAC` token signed with `AUTH_SECRET`, in an HttpOnly `kamash_session`
+  cookie scoped to `/webhook/kamash`. 12h, renewed past the halfway mark. A token is rejected once the user
+  is gone, no longer `פעיל: כן`, or their `גרסת התחברות` changed — that column is the revocation switch.
+- CSRF: the cookie is `SameSite=None` (local frontend dev on localhost is cross-site), so `requireAuth`
+  and `auth/login` also demand an `X-Kamash-Client` header. A custom header forces a CORS preflight, and
+  `app.ts` answers preflights only for allowed origins. Do not widen CORS back to `*`.
+- `AUTH_ENFORCE=false` logs unauthenticated requests and lets them through — for a rollout only. The test
+  config sets it so route tests need no session; `auth.test.ts` switches it on.
+- pino redacts the cookie headers (`lib/logger.ts`); a failed login logs the email, never the password.
+
 **Layering, strictly one-directional:** routes → services → (`config`, `lib`). Routes never touch Google/LLM
 SDKs directly; that lives in `services/`. Keep it that way — it is what makes the mock-at-the-service-boundary
 test strategy work.
