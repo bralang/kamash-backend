@@ -116,6 +116,11 @@ Several prompt rules and post-processing steps exist because we diffed real pipe
 document after the clinic edited it by hand, across two diagnoses, and encoded only what recurred in **both**.
 These are deliberate departures from n8n parity — n8n produced the same problems:
 
+- **Register** (`SYSTEM_PROMPT_TEMPLATE`): n8n asked for "שפה גבוהה" / "לשון גבוהה", and the model answered
+  with "על מנת", "תוך", "לרבות", "דהיינו" and a comma before every ו' — which the clinic's language editor
+  replaced by hand in all three diagnoses diffed. It also contradicted the config sheet's own rule ("קרוב לשפה
+  הדבורה"), and the hardcoded prompt wins that contest. It now asks for plain, short standard Hebrew; the
+  concrete word swaps live in the sheet's "כללי לשון" row, where the clinic can extend them without a deploy.
 - **Transcript glossary** (`CLEANUP_SYSTEM_PROMPT`): Whisper mis-transcribed the same clinical terms in both
   diagnoses — "חי\"ת סופית", which is not a Hebrew letter at all, for "כ\"ף סופית", and "ביסוס חושי" for
   "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
