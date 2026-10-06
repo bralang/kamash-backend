@@ -21,6 +21,11 @@ const envSchema = z.object({
   // while both Anthropic calls keep thinking disabled — thinking tokens are drawn
   // from this same budget. Raise it before enabling thinking anywhere.
   ANTHROPIC_MAX_TOKENS: z.coerce.number().default(4096),
+  // Only read when ANTHROPIC_MODEL is claude-sonnet-5-5, where the section rewrite runs
+  // with thinking on (see thinkingFor in anthropicService.ts). Thinking is drawn from
+  // the call's max_tokens, so that call gets this larger budget instead.
+  ANTHROPIC_THINKING_MAX_TOKENS: z.coerce.number().default(16000),
+  ANTHROPIC_EFFORT: z.enum(["low", "medium", "high"]).default("low"),
   GMAIL_OAUTH_CLIENT_ID: z.string().optional(),
   GMAIL_OAUTH_CLIENT_SECRET: z.string().optional(),
   GMAIL_OAUTH_REFRESH_TOKEN: z.string().optional(),

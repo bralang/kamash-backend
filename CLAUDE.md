@@ -184,9 +184,15 @@ cleanup behavior rather than a rephrase.
 
 The model id comes from `ANTHROPIC_MODEL`, defaulting to `claude-sonnet-5`. The n8n export's own id
 (`claude-sonnet-4-6`) is not a valid model and failed every section rewrite in production until the default
-was corrected — don't reinstate it. Both Anthropic calls must keep `thinking: { type: "disabled" }`:
-claude-sonnet-5 runs adaptive thinking when the field is omitted, thinking tokens come out of
-`ANTHROPIC_MAX_TOKENS`, and a long think can exhaust the budget and return no text block at all.
+was corrected — don't reinstate it. The `thinking` field is chosen per model by `thinkingFor`, never
+written inline. On claude-sonnet-5 both calls send `{ type: "disabled" }`: that model runs adaptive thinking
+when the field is omitted, thinking tokens come out of `ANTHROPIC_MAX_TOKENS`, and a long think can exhaust
+the budget and return no text block at all. **claude-sonnet-5-5 rejects `disabled` with a 400**, so changing
+`ANTHROPIC_MODEL` alone would fail every diagnosis; on it the section rewrite runs adaptive thinking at
+`ANTHROPIC_EFFORT` with `ANTHROPIC_THINKING_MAX_TOKENS`, and the snippet rewrite sends `between_tools`
+(its lowest setting; nothing else may sit inside `thinking`). `extractText` refuses a reply that was
+declined (`stop_reason: "refusal"`, logged with its category) or cut off at `max_tokens`, rather than
+persisting a section that stops mid-sentence.
 
 ## Testing conventions
 Two shapes, both under `test/` (mirroring `src/`): **route tests** drive `createApp()` with `supertest` and

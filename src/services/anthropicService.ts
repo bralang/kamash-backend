@@ -15,6 +15,73 @@ function getClient(): Anthropic {
   return client;
 }
 
+// ---- Thinking configuration, per model ----
+//
+// Both calls here are linguistic rewrites, and on claude-sonnet-5 they run with
+// thinking disabled: that model runs adaptive thinking when `thinking` is omitted,
+// thinking tokens count against max_tokens, and a long think could exhaust the
+// budget and return no text block at all.
+//
+// claude-sonnet-5-5 rejects `thinking: { type: "disabled" }` with a 400, so pointing
+// ANTHROPIC_MODEL at it without this switch would fail every section rewrite (and so
+// every diagnosis) and every snippet rewrite. On that model:
+// - the section rewrite runs adaptive thinking at ANTHROPIC_EFFORT (default "low").
+//   It is a background job, so the extra latency is invisible, and a short think
+//   before writing is what should help it hold the sheet's long list of rules
+//   (attribution once per reporter, no comma before ו', the term glossary). Thinking
+//   comes out of max_tokens, hence the separate, larger ANTHROPIC_THINKING_MAX_TOKENS.
+// - the snippet rewrite uses "between_tools", that model's lowest thinking setting:
+//   a person is waiting on it behind a 25s cap. It accepts no other field inside
+//   `thinking` and only effort "high" or below, which is the default.
+// Any other model keeps the claude-sonnet-5 behavior unchanged.
+
+type ThinkingRoute = "section" | "snippet";
+type ThinkingFields = Pick<Anthropic.MessageCreateParamsNonStreaming, "max_tokens" | "thinking" | "output_config">;
+
+function rejectsDisabledThinking(model: string): boolean {
+  return model.startsWith("claude-sonnet-5-5");
+}
+
+function thinkingFor(route: ThinkingRoute): ThinkingFields {
+  if (!rejectsDisabledThinking(config.ANTHROPIC_MODEL)) {
+    return { max_tokens: config.ANTHROPIC_MAX_TOKENS, thinking: { type: "disabled" } };
+  }
+  if (route === "snippet") {
+    return {
+      max_tokens: config.ANTHROPIC_MAX_TOKENS,
+      // The pinned SDK's types predate "between_tools"; the API takes it as a plain value.
+      thinking: { type: "between_tools" } as unknown as Anthropic.ThinkingConfigParam,
+    };
+  }
+  return {
+    max_tokens: config.ANTHROPIC_THINKING_MAX_TOKENS,
+    thinking: { type: "adaptive" },
+    output_config: { effort: config.ANTHROPIC_EFFORT },
+  };
+}
+
+/** The reply's text, or a thrown Error saying why there is none to use. The text
+ *  block is looked up by type, never by position: with thinking on, a response can
+ *  open with a thinking block whose text is empty. */
+function extractText(message: Anthropic.Message, label: string): string {
+  if (message.stop_reason === "refusal") {
+    // A decline is a normal 200; without this it would surface as a bare "no text".
+    const category = message.stop_details?.category ?? "unknown";
+    throw new Error(`${label} was declined by the model (refusal, category: ${category})`);
+  }
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    const blockTypes = message.content.map((b) => b.type).join(", ") || "none";
+    throw new Error(`${label} returned no text content (stop_reason: ${message.stop_reason}, blocks: ${blockTypes})`);
+  }
+  if (message.stop_reason === "max_tokens") {
+    // There is text, but it stops mid-sentence. The section rewrite is persisted and
+    // the snippet is written into the document, so a cut-off reply is not returned.
+    throw new Error(`${label} was cut off at max_tokens (${message.usage?.output_tokens ?? "?"} output tokens)`);
+  }
+  return textBlock.text;
+}
+
 export interface PatientContext {
   name: string;
   age: string;
@@ -99,24 +166,11 @@ export async function rewriteSection(params: RewriteSectionParams): Promise<stri
   const anthropic = getClient();
   const message = await anthropic.messages.create({
     model: config.ANTHROPIC_MODEL,
-    max_tokens: config.ANTHROPIC_MAX_TOKENS,
-    // claude-sonnet-5 runs adaptive thinking when `thinking` is omitted, and thinking
-    // tokens count against max_tokens — long thinking could exhaust the budget and
-    // return no text block at all. This is a linguistic rewrite task that doesn't
-    // need deep reasoning, so disable thinking (matches the pre-sonnet-5 behavior).
-    thinking: { type: "disabled" },
+    ...thinkingFor("section"),
     system: SYSTEM_PROMPT_TEMPLATE(params.editingInstructions, params.generalRules, params.allowedSubheadings?.trim() ?? ""),
     messages: [{ role: "user", content: TASK_PROMPT_TEMPLATE(params.sectionText, params.patient) }],
   });
-  // Even with thinking disabled, find the text block rather than assuming index 0.
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    const blockTypes = message.content.map((b) => b.type).join(", ") || "none";
-    throw new Error(
-      `Anthropic rewrite returned no text content (stop_reason: ${message.stop_reason}, blocks: ${blockTypes})`,
-    );
-  }
-  return textBlock.text;
+  return extractText(message, "Anthropic rewrite");
 }
 
 // ---- Selected-snippet rewrite (POST /webhook/kamash/rewritetext) ----
@@ -188,13 +242,10 @@ export async function rewriteSnippet(params: RewriteSnippetParams): Promise<stri
     const message = await anthropic.messages.create(
       {
         model: config.ANTHROPIC_MODEL,
-        // Enough for a 4,000-char Hebrew snippet (~1,500–2,000 tokens in and out)
-        // *only while thinking stays disabled* — thinking tokens come out of this
-        // same budget. Anyone enabling thinking here must raise it.
-        max_tokens: config.ANTHROPIC_MAX_TOKENS,
-        // Same reason as rewriteSection: claude-sonnet-5 runs adaptive thinking when
-        // `thinking` is omitted, and that can exhaust max_tokens before any text block.
-        thinking: { type: "disabled" },
+        // ANTHROPIC_MAX_TOKENS is enough for a 4,000-char Hebrew snippet (~1,500–2,000
+        // tokens in and out) only because this route never thinks: disabled on
+        // claude-sonnet-5, "between_tools" on claude-sonnet-5-5 (see thinkingFor).
+        ...thinkingFor("snippet"),
         system: SNIPPET_SYSTEM_PROMPT(params.shape, params.generalRules, params.sectionInstructions?.trim() ?? ""),
         messages: [{ role: "user", content: SNIPPET_TASK_PROMPT(params) }],
       },
@@ -210,16 +261,11 @@ export async function rewriteSnippet(params: RewriteSnippetParams): Promise<stri
       },
     );
 
-    const textBlock = message.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      const blockTypes = message.content.map((b) => b.type).join(", ") || "none";
-      throw new HttpError(
-        502,
-        `Anthropic snippet rewrite returned no text content (stop_reason: ${message.stop_reason}, blocks: ${blockTypes})`,
-        "MODEL_ERROR",
-      );
+    try {
+      return extractText(message, "Anthropic snippet rewrite");
+    } catch (err) {
+      throw new HttpError(502, err instanceof Error ? err.message : "unknown error", "MODEL_ERROR");
     }
-    return textBlock.text;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     if (err instanceof APIConnectionTimeoutError) {

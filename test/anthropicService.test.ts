@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { createMock } = vi.hoisted(() => ({ createMock: vi.fn() }));
 
@@ -6,11 +6,19 @@ vi.mock("@anthropic-ai/sdk", () => ({
   default: vi.fn(() => ({ messages: { create: createMock } })),
 }));
 
-vi.mock("../src/config/env.js", () => ({
-  config: { ANTHROPIC_API_KEY: "test-key", ANTHROPIC_MODEL: "claude-sonnet-5", ANTHROPIC_MAX_TOKENS: 4096 },
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {
+    ANTHROPIC_API_KEY: "test-key",
+    ANTHROPIC_MODEL: "claude-sonnet-5",
+    ANTHROPIC_MAX_TOKENS: 4096,
+    ANTHROPIC_THINKING_MAX_TOKENS: 16000,
+    ANTHROPIC_EFFORT: "low",
+  },
 }));
 
-import { rewriteSection } from "../src/services/anthropicService.js";
+vi.mock("../src/config/env.js", () => ({ config: mockConfig }));
+
+import { rewriteSection, rewriteSnippet } from "../src/services/anthropicService.js";
 
 const baseParams = {
   sectionText: "טקסט מקור",
@@ -120,5 +128,88 @@ describe("rewriteSection", () => {
     await expect(rewriteSection(baseParams)).rejects.toThrow(
       "Anthropic rewrite returned no text content (stop_reason: max_tokens, blocks: thinking)",
     );
+  });
+});
+
+describe("thinking settings per model", () => {
+  const snippetParams = {
+    shape: "text" as const,
+    content: "קטע לניסוח",
+    instruction: "",
+    generalRules: "כללים",
+    patient: baseParams.patient,
+  };
+
+  beforeEach(() => {
+    createMock.mockReset().mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: "טקסט ערוך" }] });
+  });
+
+  afterEach(() => {
+    mockConfig.ANTHROPIC_MODEL = "claude-sonnet-5";
+  });
+
+  it("keeps claude-sonnet-5 on disabled thinking and the shared budget, on both routes", async () => {
+    await rewriteSection(baseParams);
+    const section = createMock.mock.calls.at(-1)?.[0];
+    expect(section).toMatchObject({ thinking: { type: "disabled" }, max_tokens: 4096 });
+    expect(section).not.toHaveProperty("output_config");
+
+    await rewriteSnippet(snippetParams);
+    expect(createMock.mock.calls.at(-1)?.[0]).toMatchObject({ thinking: { type: "disabled" }, max_tokens: 4096 });
+  });
+
+  // claude-sonnet-5-5 answers { type: "disabled" } with a 400, so neither route may send it.
+  it("runs the section rewrite on claude-sonnet-5-5 with adaptive thinking, the effort setting and the larger budget", async () => {
+    mockConfig.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+    await rewriteSection(baseParams);
+
+    const call = createMock.mock.calls.at(-1)?.[0];
+    expect(call).toMatchObject({
+      model: "claude-sonnet-5-5",
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+      max_tokens: 16000,
+    });
+  });
+
+  it("runs the snippet rewrite on claude-sonnet-5-5 with between_tools and nothing else in thinking", async () => {
+    mockConfig.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+    await rewriteSnippet(snippetParams);
+
+    const call = createMock.mock.calls.at(-1)?.[0];
+    expect(call.thinking).toEqual({ type: "between_tools" });
+    expect(call).not.toHaveProperty("output_config");
+    expect(call.max_tokens).toBe(4096);
+  });
+
+  it("reads the text block after an empty thinking block", async () => {
+    mockConfig.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+    createMock.mockReset().mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        { type: "thinking", thinking: "", signature: "sig" },
+        { type: "text", text: "טקסט ערוך" },
+      ],
+    });
+    await expect(rewriteSection(baseParams)).resolves.toBe("טקסט ערוך");
+  });
+
+  it("names the refusal category instead of reporting a bare missing text block", async () => {
+    createMock.mockReset().mockResolvedValue({
+      stop_reason: "refusal",
+      stop_details: { type: "refusal", category: "general_harms", explanation: "" },
+      content: [],
+    });
+    await expect(rewriteSection(baseParams)).rejects.toThrow("declined by the model (refusal, category: general_harms)");
+    await expect(rewriteSnippet(snippetParams)).rejects.toMatchObject({ statusCode: 502, code: "MODEL_ERROR" });
+  });
+
+  it("does not return text that was cut off at max_tokens", async () => {
+    createMock.mockReset().mockResolvedValue({
+      stop_reason: "max_tokens",
+      usage: { output_tokens: 16000 },
+      content: [{ type: "text", text: "טקסט שנקטע באמצע המש" }],
+    });
+    await expect(rewriteSection(baseParams)).rejects.toThrow("cut off at max_tokens (16000 output tokens)");
   });
 });
