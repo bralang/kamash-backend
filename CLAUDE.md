@@ -12,11 +12,11 @@ is done per-endpoint at the nginx layer (see README "Cutting an endpoint over").
 **The n8n workflows are the spec.** Behavior — prompts, the segmentation JSON schema, the assembled-HTML
 CSS, link shapes written into Sheets, the frontend's polling contract — was reverse-engineered from n8n
 exports and is reproduced deliberately, often with a comment saying so. When something looks odd (matching a
-"שאלוני הורים" row by patient name, `transcriptFile` always being raw audio, placeholder email copy), it is
+"שאלוני הורים" row by patient name, `transcriptFile` always being raw audio), it is
 almost always faithful to n8n on purpose. Before "fixing" such a thing, confirm it isn't load-bearing for the
 frontend or n8n parity. Intentional *departures* from n8n are the few places called out explicitly in code
 comments and the README (folder naming, the dropped hardcoded email CC, 400-on-missing-mail, the stale-job
-sweep), plus the output-quality work in "Tuning output against the clinic's hand-edits" below — preserve
+sweep, transcription moved out of the step1 request, the clinic's own RTL email wording), plus the output-quality work in "Tuning output against the clinic's hand-edits" below — preserve
 those departures.
 
 ## Commands
@@ -70,12 +70,15 @@ test strategy work.
 ### step1 is the whole pipeline; everything else is CRUD-on-Sheets
 `POST /kamash/step1` ([routes/step1.ts](src/routes/step1.ts)) is the only heavy endpoint. It:
 1. Validates the form + audio (rejects non-Whisper MIME types up front), creates the Drive folder, uploads
-   the recording and transcribes (Whisper) in parallel, appends the "אבחונים" row with `status: processing`.
-2. **Responds immediately** with `{ jobid, status }`, then fires `runStep1Pipeline(...)` fire-and-forget.
+   the recording as-is, appends the "אבחונים" row with `status: processing`.
+2. **Responds immediately** with `{ jobid, status }`, then fires `runStep1Pipeline(...)` fire-and-forget,
+   handing it the recording itself. Nothing slow happens before the response: compression and Whisper both
+   take minutes on a long session, and the diagnostician used to sit on the upload screen through them.
 
 `services/pipeline/step1Pipeline.ts` is the background job (formerly a chain of n8n sub-workflows), run in the
 same process — not a queue:
-transcript cleanup (GPT-4.1, spelling/punctuation *only*, plus the glossary described below) → segment into
+compression for Whisper's 25MB limit (`audioService.ensureTranscribable`, ffmpeg, oversized files only) →
+transcription (Whisper) → transcript cleanup (GPT-4.1, spelling/punctuation *only*, plus the glossary described below) → segment into
 the fixed JSON schema (`openaiService.segmentToJson`, `status → processing2`) → per-section rewrite (Claude,
 `anthropicService`) → per-section HTML (GPT-4.1, `htmlConversionService.sectionToHtml`, whose LLM output then
 passes through deterministic clean-up) → **deterministic** `assembleDocument` (no LLM — CSS is hardcoded to

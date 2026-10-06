@@ -42,14 +42,17 @@ All mounted under `/webhook/kamash` (e.g. `POST https://kamash-api.link-up.co.il
   `?mail=`. **Bug fixed vs. n8n**: the original workflow unconditionally also CC'd a hardcoded test
   address on every send — that branch is dropped, so this now only ever sends to the real recipient.
   A request with no `mail` now fails with 400 instead of silently no-op'ing while the frontend shows a
-  false success toast. Subject/body text is still placeholder copy carried over from n8n — real wording
-  needs to come from the clinic (see `emailService.ts`).
+  false success toast. Subject and body are the clinic's own wording (n8n only ever sent placeholder
+  copy), sent as multipart/alternative — an RTL HTML part plus a plain-text fallback, both UTF-8 base64 —
+  with the Hebrew PDF filename encoded per RFC 2231/2047 (see `emailService.ts`).
 - `POST .../step1` — accepts the patient form + audio recording (`audioFile` or `transcriptFile` — both
   are always raw audio, the latter is a legacy/misleading field name), rejects formats Whisper doesn't
   accept up front, creates the patient's Drive folder (named `patientName (jobId prefix)` — fixes the
   n8n collision risk of naming folders from patient name alone), uploads the recording, and appends the
-  "אבחונים" row with `status: processing` before responding immediately with `{ jobid, status }`. The
-  rest of the pipeline (transcription cleanup → segmentation → per-section rewrite via Claude →
+  "אבחונים" row with `status: processing` (including the form's optional `healthFund` → `קופת חולים`,
+  free text, not validated against the frontend's list) before responding immediately with
+  `{ jobid, status }`. The rest of the pipeline (compression if over Whisper's 25MB → Whisper
+  transcription → transcription cleanup → segmentation → per-section rewrite via Claude →
   per-section HTML via GPT-4.1 → deterministic document assembly) runs in the background — see
   `services/pipeline/step1Pipeline.ts`. Any thrown error at any stage flips the row to `status: failed`
   (`services/pipeline/errorHandler.ts`), replacing n8n's error-trigger workflow. The assembled document's

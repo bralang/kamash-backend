@@ -1,6 +1,7 @@
 import { diagnosesRepo, versionsRepo } from "../sheetsService.js";
 import { createDoc, uploadText } from "../driveService.js";
-import { chatComplete, segmentToJson } from "../openaiService.js";
+import { chatComplete, segmentToJson, transcribe } from "../openaiService.js";
+import { ensureTranscribable } from "../audioService.js";
 import { rewriteSection } from "../anthropicService.js";
 import { getGeneralRule, getGeneralRules, getSectionInstructions, FIXED_TERMS_RULE_TYPE } from "../configRepo.js";
 import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../htmlConversionService.js";
@@ -11,7 +12,9 @@ import type { PatientIntake } from "../../types/diagnosis.js";
 export interface Step1PipelineInput {
   jobId: string;
   folderId: string;
-  rawTranscript: string;
+  /** The recording exactly as uploaded (it is already in Drive as-is). Transcribed here,
+   * not in the route, so step1 can respond before Whisper finishes. */
+  recording: { buffer: Buffer; filename: string };
   patient: PatientIntake;
 }
 
@@ -70,9 +73,14 @@ function isMeaningful(text: string | undefined): text is string {
 }
 
 export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void> {
-  const { jobId, folderId, rawTranscript, patient } = input;
+  const { jobId, folderId, recording, patient } = input;
 
   try {
+    // 0. Transcribe (Whisper). Oversized recordings are re-encoded first to fit Whisper's
+    //    25MB limit; a recording too long even after that fails the job here like any stage.
+    const transcribable = await ensureTranscribable(recording.buffer, recording.filename);
+    const rawTranscript = await transcribe(transcribable.buffer, transcribable.filename);
+
     // 1. Save raw transcript as a Drive Doc.
     await createDoc(folderId, `תמלול ${patient.name}`, rawTranscript);
 
