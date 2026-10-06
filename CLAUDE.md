@@ -39,6 +39,20 @@ ecosystem.config.js` (pm2 loads secrets from `.env` in the cwd).
 Note the **ESM + NodeNext** setup: relative imports must carry the `.js` extension even in `.ts` source
 (e.g. `import { config } from "./config/env.js"`). Match this in every new file.
 
+## Release stamp — a standing rule
+
+`GET /webhook/kamash/version` reports what is actually running: `releaseId`, `commit`, `ref`, `deployedAt`
+and `startedAt`. The frontend's footer shows it next to its own build time, so the clinic (and we) can see at
+a glance whether a deploy really landed — a service that failed to restart keeps reporting an old
+`deployedAt`, and a plain restart moves only `startedAt`.
+
+**This must keep updating itself on every push. Never commit a version or a date into the source.** The
+numbers come from `release.json`, which `.github/workflows/deploy.yml` writes into the release package right
+before upload; it is gitignored, so a checkout has none and `src/lib/releaseInfo.ts` reports nulls rather
+than inventing a date. That file resolves the stamp two levels up from its own module URL — true for both
+`dist/lib/` and `src/lib/`, and unlike `process.cwd()` it does not depend on how the service was started.
+If the release packaging or the workflow changes, check that the stamp still moves.
+
 ## Architecture
 
 Request flow: `index.ts` (listen + boot-time stale-job sweep) → `app.ts` (pino-http logging, JSON body limit,

@@ -34,6 +34,23 @@ jobs:
         run: |
           echo "RELEASE_ID=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
+      # The only place the backend's "last updated" timestamp comes from: src/lib/
+      # releaseInfo.ts reads this file from the package root at startup and serves
+      # it at /webhook/kamash/version, which the frontend footer shows. It is
+      # written per deploy and gitignored, so it can never go stale — do not
+      # replace it with a value committed to the repo.
+      - name: Write release stamp
+        run: |
+          cat > release.json <<JSON
+          {
+            "releaseId": "${RELEASE_ID}",
+            "commit": "${GITHUB_SHA}",
+            "ref": "${GITHUB_REF_NAME}",
+            "deployedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          }
+          JSON
+          cat release.json
+
       - name: Prepare release package
         run: |
           mkdir -p package

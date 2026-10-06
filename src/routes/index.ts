@@ -9,6 +9,7 @@ import { sendEmailRouter } from "./sendEmail.js";
 import { step1Router } from "./step1.js";
 import { checkstatusRouter } from "./checkstatus.js";
 import { rewriteTextRouter } from "./rewritetext.js";
+import { versionRouter } from "./version.js";
 
 export const kamashRouter = Router();
 
@@ -22,3 +23,4 @@ kamashRouter.use(sendEmailRouter);
 kamashRouter.use(step1Router);
 kamashRouter.use(checkstatusRouter);
 kamashRouter.use(rewriteTextRouter);
+kamashRouter.use(versionRouter);
