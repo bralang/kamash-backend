@@ -59,6 +59,9 @@ export const DIAGNOSES_COLUMNS = {
   SEGMENTED: "חלוקה למקטעים",
   LATEST_VERSION: "גרסא אחרונה",
   LATEST_VERSION_HTML: "גרסא אחרונה html",
+  /** Column S. Whatever the intake form sent (its select offers כללית/מכבי/מאוחדת/לאומית/אחר),
+   * not validated against that list; empty when the diagnostician left it unset. */
+  HEALTH_FUND: "קופת חולים",
 } as const;
 
 export const VERSIONS_COLUMNS = {

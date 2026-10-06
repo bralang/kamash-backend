@@ -1,8 +1,9 @@
 import { diagnosesRepo, versionsRepo } from "../sheetsService.js";
 import { createDoc, uploadText } from "../driveService.js";
-import { chatComplete, segmentToJson } from "../openaiService.js";
+import { chatComplete, segmentToJson, transcribe } from "../openaiService.js";
+import { ensureTranscribable } from "../audioService.js";
 import { rewriteSection } from "../anthropicService.js";
-import { getGeneralRules, getSectionInstructions } from "../configRepo.js";
+import { getGeneralRule, getGeneralRules, getSectionInstructions, FIXED_TERMS_RULE_TYPE } from "../configRepo.js";
 import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../htmlConversionService.js";
 import { markJobFailed } from "./errorHandler.js";
 import { DIAGNOSES_COLUMNS, DiagnosisStatus } from "../../config/sheets.js";
@@ -11,12 +12,19 @@ import type { PatientIntake } from "../../types/diagnosis.js";
 export interface Step1PipelineInput {
   jobId: string;
   folderId: string;
-  rawTranscript: string;
+  /** The recording exactly as uploaded (it is already in Drive as-is). Transcribed here,
+   * not in the route, so step1 can respond before Whisper finishes. */
+  recording: { buffer: Buffer; filename: string };
   patient: PatientIntake;
 }
 
 // "ניקוי תמלול בלבד" — spelling/punctuation only, explicitly forbidden from rewriting.
-const CLEANUP_SYSTEM_PROMPT = `המטרה: ניקוי תמלול בלבד.
+// The hardcoded dictionary below covers Whisper mishearings we diffed out of real output; the
+// clinic's own term list arrives as `fixedTerms` (the "מונחים קבועים" row of the config sheet),
+// so a term she adds there is corrected here, at the first stage that can see it, rather than
+// only at the per-section rewrite three stages later. Empty when the row is missing — the
+// prompt then reads exactly as it did before.
+const CLEANUP_SYSTEM_PROMPT = (fixedTerms: string) => `המטרה: ניקוי תמלול בלבד.
 
 מותר לך לבצע רק:
 - תיקון שגיאות כתיב
@@ -41,6 +49,7 @@ Whisper משבש באופן חוזר מונחים מקצועיים ושמות ש
 - "ביסוס חושי" או "ביסוס חושים" ← "ויסות חושי".
 - "אותיות גושות" ← "אותיות דגושות".
 - "הסחתות דעת" ← "הסחות דעת".
+- "סיכול אותיות" ← "שיכול אותיות", וכן "סיכול הגאים", "סיכול צלילים" ו"סיכול הברות". "סיכול" פירושו הכשלה ואינו מונח באבחון קריאה; המונח הוא שיכול, מלשון החלפת סדר.
 - "בשיטת לב" ← "בשיטת ל"ב". זהו קיצור, לא המילה לב.
 - "הליכה על קו לאגודל" ← "הליכה עקב לצד אגודל".
 - משחק "רב-דב" ← משחק "רב-תו".
@@ -49,22 +58,36 @@ Whisper משבש באופן חוזר מונחים מקצועיים ושמות ש
 טיפול במילים שלא זוהו:
 - אם מילה או רצף מילים אינם מצטרפים למשמעות בעברית, אל תשאיר אותם כפי שהם ואל תמציא ניסוח שנשמע סביר במקומם.
 - נסה לשחזר מה נאמר לפי ההקשר המקצועי של אבחון קריאה. אם אינך יכול לשחזר בוודאות, השאר את המילה כפי שתומללה והוסף מיד אחריה [לא ברור].
-- הכלל הזה חשוב במיוחד בשמות של אותיות, שיטות, משחקים וחוברות, שבהם שגיאת תמלול יוצרת ממצא קליני שגוי.`;
+- הכלל הזה חשוב במיוחד בשמות של אותיות, שיטות, משחקים וחוברות, שבהם שגיאת תמלול יוצרת ממצא קליני שגוי.${
+  fixedTerms
+    ? `
+
+מונחים קבועים של המכון:
+המונחים הבאים הם המונחים המקצועיים התקניים, והאיות שמופיע כאן הוא האיות הנכון. תקן כל צורה חלופית שלהם בכל מופע, גם כאשר הצורה שתומללה היא מילה עברית תקינה בפני עצמה.
+${fixedTerms}`
+    : ""
+}`;
 
 function isMeaningful(text: string | undefined): text is string {
   return Boolean(text && text.trim());
 }
 
 export async function runStep1Pipeline(input: Step1PipelineInput): Promise<void> {
-  const { jobId, folderId, rawTranscript, patient } = input;
+  const { jobId, folderId, recording, patient } = input;
 
   try {
+    // 0. Transcribe (Whisper). Oversized recordings are re-encoded first to fit Whisper's
+    //    25MB limit; a recording too long even after that fails the job here like any stage.
+    const transcribable = await ensureTranscribable(recording.buffer, recording.filename);
+    const rawTranscript = await transcribe(transcribable.buffer, transcribable.filename);
+
     // 1. Save raw transcript as a Drive Doc.
     await createDoc(folderId, `תמלול ${patient.name}`, rawTranscript);
 
-    // 2. Clean transcript (spelling/punctuation only).
+    // 2. Clean transcript (spelling/punctuation only), with the clinic's term glossary.
+    const fixedTerms = await getGeneralRule(FIXED_TERMS_RULE_TYPE);
     const cleanedTranscript = await chatComplete({
-      system: CLEANUP_SYSTEM_PROMPT,
+      system: CLEANUP_SYSTEM_PROMPT(fixedTerms),
       user: `זה הטקסט המתומלל:\n${rawTranscript}`,
     });
     await createDoc(folderId, `ניקוי תמלול ${patient.name}`, cleanedTranscript);

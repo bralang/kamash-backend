@@ -8,6 +8,11 @@ vi.mock("../src/services/driveService.js", () => ({
 vi.mock("../src/services/openaiService.js", () => ({
   chatComplete: vi.fn().mockResolvedValue("תמלול נקי"),
   segmentToJson: vi.fn(),
+  transcribe: vi.fn(),
+}));
+
+vi.mock("../src/services/audioService.js", () => ({
+  ensureTranscribable: vi.fn(),
 }));
 
 vi.mock("../src/services/anthropicService.js", () => ({
@@ -16,6 +21,8 @@ vi.mock("../src/services/anthropicService.js", () => ({
 
 vi.mock("../src/services/configRepo.js", () => ({
   getGeneralRules: vi.fn().mockResolvedValue("כללי לשון כלליים"),
+  getGeneralRule: vi.fn().mockResolvedValue("שיכול אותיות (ולא \"סיכול אותיות\")"),
+  FIXED_TERMS_RULE_TYPE: "מונחים קבועים",
   getSectionInstructions: vi.fn().mockResolvedValue({
     sectionKeyEn: "referral_reason",
     sectionTitleHe: "סיבת הפנייה",
@@ -45,7 +52,11 @@ vi.mock("../src/services/pipeline/errorHandler.js", () => ({
 }));
 
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
-import { chatComplete, segmentToJson } from "../src/services/openaiService.js";
+import { getGeneralRule, FIXED_TERMS_RULE_TYPE } from "../src/services/configRepo.js";
+import { chatComplete, segmentToJson, transcribe } from "../src/services/openaiService.js";
+import { ensureTranscribable } from "../src/services/audioService.js";
+import { createDoc } from "../src/services/driveService.js";
+import { HttpError } from "../src/lib/httpError.js";
 import { rewriteSection } from "../src/services/anthropicService.js";
 import { sectionToHtml, assembleDocument, buildPersonalDetailsHtml } from "../src/services/htmlConversionService.js";
 import { diagnosesRepo, versionsRepo } from "../src/services/sheetsService.js";
@@ -53,6 +64,8 @@ import { markJobFailed } from "../src/services/pipeline/errorHandler.js";
 import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
 
 const patient = { name: "ילד א", age: "8", school: "בית ספר הגפן", grade: "ג", city: "בני ברק", date: "2026-02-20" };
+
+const recording = { buffer: Buffer.from("fake webm bytes"), filename: "recording.webm" };
 
 const segmented = {
   referral_reason: "הופנה בשל קשיי קריאה",
@@ -78,10 +91,17 @@ describe("runStep1Pipeline", () => {
     vi.mocked(diagnosesRepo.updateByJobId).mockReset().mockResolvedValue(undefined);
     vi.mocked(versionsRepo.appendVersion).mockReset().mockResolvedValue(undefined);
     vi.mocked(markJobFailed).mockReset().mockResolvedValue(undefined);
+    vi.mocked(chatComplete).mockReset().mockResolvedValue("תמלול נקי");
+    vi.mocked(transcribe).mockReset().mockResolvedValue("תמלול גולמי");
+    vi.mocked(ensureTranscribable)
+      .mockReset()
+      .mockImplementation(async (buffer, filename) => ({ buffer, filename }));
+    vi.mocked(createDoc).mockClear();
+    vi.mocked(getGeneralRule).mockReset().mockResolvedValue('שיכול אותיות (ולא "סיכול אותיות")');
   });
 
   it("runs the full chain, skips empty sections, and marks the job done", async () => {
-    await runStep1Pipeline({ jobId: "job-1", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
+    await runStep1Pipeline({ jobId: "job-1", folderId: "FOLDER_1", recording, patient });
 
     // Segmentation no longer receives the patient — personal details never touch the LLM.
     expect(segmentToJson).toHaveBeenCalledWith("תמלול נקי");
@@ -115,10 +135,50 @@ describe("runStep1Pipeline", () => {
     vi.mocked(rewriteSection).mockRejectedValue(new Error("Anthropic is down"));
 
     await expect(
-      runStep1Pipeline({ jobId: "job-2", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient }),
+      runStep1Pipeline({ jobId: "job-2", folderId: "FOLDER_1", recording, patient }),
     ).resolves.toBeUndefined();
 
     expect(markJobFailed).toHaveBeenCalledWith("job-2", expect.any(Error), "step1Pipeline");
+  });
+
+  it("transcribes the compressed audio, then saves and cleans that transcript", async () => {
+    const compressed = Buffer.from("compressed");
+    vi.mocked(ensureTranscribable).mockResolvedValue({ buffer: compressed, filename: "recording.ogg" });
+
+    await runStep1Pipeline({ jobId: "job-6", folderId: "FOLDER_1", recording, patient });
+
+    expect(ensureTranscribable).toHaveBeenCalledWith(recording.buffer, "recording.webm");
+    expect(transcribe).toHaveBeenCalledWith(compressed, "recording.ogg");
+    expect(createDoc).toHaveBeenCalledWith("FOLDER_1", `תמלול ${patient.name}`, "תמלול גולמי");
+    expect(vi.mocked(chatComplete).mock.calls[0]?.[0]?.user).toContain("תמלול גולמי");
+  });
+
+  // Transcription now runs after step1 has already answered, so its failure can only reach
+  // the diagnostician through the row's status — which is what /checkstatus polls.
+  it("marks the job failed when transcription fails, before any later stage runs", async () => {
+    vi.mocked(transcribe).mockRejectedValue(new Error("Whisper is down"));
+
+    await expect(
+      runStep1Pipeline({ jobId: "job-7", folderId: "FOLDER_1", recording, patient }),
+    ).resolves.toBeUndefined();
+
+    expect(markJobFailed).toHaveBeenCalledWith("job-7", expect.any(Error), "step1Pipeline");
+    expect(createDoc).not.toHaveBeenCalled();
+    expect(chatComplete).not.toHaveBeenCalled();
+    expect(diagnosesRepo.updateByJobId).not.toHaveBeenCalled();
+  });
+
+  it("marks the job failed when the recording cannot be compressed enough for Whisper", async () => {
+    vi.mocked(ensureTranscribable).mockRejectedValue(
+      new HttpError(413, "Audio file is too large to transcribe even after compression."),
+    );
+
+    await expect(
+      runStep1Pipeline({ jobId: "job-8", folderId: "FOLDER_1", recording, patient }),
+    ).resolves.toBeUndefined();
+
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(markJobFailed).toHaveBeenCalledWith("job-8", expect.any(HttpError), "step1Pipeline");
   });
 
   // The transcript-cleanup glossary exists because Whisper mis-transcribed these exact
@@ -127,7 +187,7 @@ describe("runStep1Pipeline", () => {
   it("sends the Kamash terminology glossary with the transcript cleanup call", async () => {
     vi.mocked(segmentToJson).mockResolvedValue(segmented);
 
-    await runStep1Pipeline({ jobId: "job-3", folderId: "FOLDER_1", rawTranscript: "תמלול גולמי", patient });
+    await runStep1Pipeline({ jobId: "job-3", folderId: "FOLDER_1", recording, patient });
 
     const cleanupCall = vi.mocked(chatComplete).mock.calls[0]?.[0];
     expect(cleanupCall?.user).toContain("תמלול גולמי");
@@ -135,6 +195,7 @@ describe("runStep1Pipeline", () => {
     const prompt = cleanupCall?.system ?? "";
     expect(prompt).toContain('"כ"ף סופית"');
     expect(prompt).toContain("ויסות חושי");
+    expect(prompt).toContain("שיכול אותיות");
     expect(prompt).toContain("ך ם ן ף ץ");
     expect(prompt).toContain("[לא ברור]");
 
@@ -142,5 +203,30 @@ describe("runStep1Pipeline", () => {
     // correction list, not a licence to edit.
     expect(prompt).toContain("ניקוי תמלול בלבד");
     expect(prompt).toContain("שכתוב סגנוני");
+  });
+
+  // The clinic maintains its own term list in the config sheet; without this it reached only
+  // the per-section rewrite, three stages downstream, so segmentation routed content it had
+  // already read under the wrong term. A term like "סיכול אותיות" for "שיכול אותיות" is spelled
+  // correctly and cannot be caught by a generic "fix spelling" instruction — only by this list.
+  it("appends the clinic's fixed-terms row from the config sheet to the cleanup prompt", async () => {
+    await runStep1Pipeline({ jobId: "job-4", folderId: "FOLDER_1", recording, patient });
+
+    expect(getGeneralRule).toHaveBeenCalledWith(FIXED_TERMS_RULE_TYPE);
+    const prompt = vi.mocked(chatComplete).mock.calls[0]?.[0]?.system ?? "";
+    expect(prompt).toContain('שיכול אותיות (ולא "סיכול אותיות")');
+    expect(prompt).toContain("מונחים קבועים של המכון");
+    // The hardcoded glossary is additive, not replaced by the sheet.
+    expect(prompt).toContain("ויסות חושי");
+  });
+
+  it("leaves the cleanup prompt unchanged when the sheet has no fixed-terms row", async () => {
+    vi.mocked(getGeneralRule).mockResolvedValue("");
+
+    await runStep1Pipeline({ jobId: "job-5", folderId: "FOLDER_1", recording, patient });
+
+    const prompt = vi.mocked(chatComplete).mock.calls[0]?.[0]?.system ?? "";
+    expect(prompt).not.toContain("מונחים קבועים של המכון");
+    expect(prompt).toContain("ויסות חושי");
   });
 });

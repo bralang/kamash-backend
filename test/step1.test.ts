@@ -28,7 +28,6 @@ import { createApp } from "../src/app.js";
 import { createPatientFolder, uploadBinary } from "../src/services/driveService.js";
 import { ensureTranscribable } from "../src/services/audioService.js";
 import { transcribe } from "../src/services/openaiService.js";
-import { HttpError } from "../src/lib/httpError.js";
 import { diagnosesRepo } from "../src/services/sheetsService.js";
 import { runStep1Pipeline } from "../src/services/pipeline/step1Pipeline.js";
 import { DIAGNOSES_COLUMNS } from "../src/config/sheets.js";
@@ -65,6 +64,7 @@ describe("POST /webhook/kamash/step1", () => {
       .field("id", "123456789")
       .field("city", "בני ברק")
       .field("mail", "parent@example.com")
+      .field("healthFund", "מכבי")
       .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
 
     expect(res.status).toBe(200);
@@ -72,7 +72,6 @@ describe("POST /webhook/kamash/step1", () => {
 
     expect(createPatientFolder).toHaveBeenCalledWith("ילד א", expect.any(String));
     expect(uploadBinary).toHaveBeenCalledWith("FOLDER_1", "recording.webm", expect.any(Buffer), "audio/webm");
-    expect(transcribe).toHaveBeenCalledWith(expect.any(Buffer), "recording.webm");
 
     expect(diagnosesRepo.appendDiagnosis).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -80,6 +79,7 @@ describe("POST /webhook/kamash/step1", () => {
         [DIAGNOSES_COLUMNS.AGE]: "8",
         [DIAGNOSES_COLUMNS.STATUS]: "processing",
         [DIAGNOSES_COLUMNS.FOLDER]: "https://drive.google.com/drive/u/0/folders/FOLDER_1",
+        [DIAGNOSES_COLUMNS.HEALTH_FUND]: "מכבי",
       }),
     );
 
@@ -88,15 +88,41 @@ describe("POST /webhook/kamash/step1", () => {
     expect(runStep1Pipeline).toHaveBeenCalledWith(
       expect.objectContaining({
         folderId: "FOLDER_1",
-        rawTranscript: "זה התמלול הגולמי",
+        recording: { buffer: fakeAudio, filename: "recording.webm" },
         patient: expect.objectContaining({ name: "ילד א" }),
       }),
     );
   });
 
-  it("transcribes the compressed audio but uploads the original to Drive", async () => {
-    const compressed = Buffer.from("compressed");
-    vi.mocked(ensureTranscribable).mockResolvedValue({ buffer: compressed, filename: "recording.ogg" });
+  it("writes an empty health fund when the form omits it", async () => {
+    const res = await request(app)
+      .post("/webhook/kamash/step1")
+      .field("patientName", "ילד א")
+      .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
+
+    expect(res.status).toBe(200);
+    expect(diagnosesRepo.appendDiagnosis).toHaveBeenCalledWith(
+      expect.objectContaining({ [DIAGNOSES_COLUMNS.HEALTH_FUND]: "" }),
+    );
+  });
+
+  it("accepts a health fund outside the frontend's list rather than rejecting the intake", async () => {
+    const res = await request(app)
+      .post("/webhook/kamash/step1")
+      .field("patientName", "ילד א")
+      .field("healthFund", "קופה חדשה")
+      .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
+
+    expect(res.status).toBe(200);
+    expect(diagnosesRepo.appendDiagnosis).toHaveBeenCalledWith(
+      expect.objectContaining({ [DIAGNOSES_COLUMNS.HEALTH_FUND]: "קופה חדשה" }),
+    );
+  });
+
+  // Compression and Whisper take minutes; the diagnostician should be on the polling screen
+  // by then, not on the upload screen. Both are the pipeline's job now.
+  it("responds without compressing or transcribing, and without waiting for the pipeline", async () => {
+    vi.mocked(runStep1Pipeline).mockReturnValue(new Promise<void>(() => {}));
 
     const res = await request(app)
       .post("/webhook/kamash/step1")
@@ -104,22 +130,24 @@ describe("POST /webhook/kamash/step1", () => {
       .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
 
     expect(res.status).toBe(200);
-    expect(transcribe).toHaveBeenCalledWith(compressed, "recording.ogg");
+    expect(res.body).toEqual({ jobid: expect.any(String), status: "processing" });
+    expect(ensureTranscribable).not.toHaveBeenCalled();
+    expect(transcribe).not.toHaveBeenCalled();
     expect(uploadBinary).toHaveBeenCalledWith("FOLDER_1", "recording.webm", fakeAudio, "audio/webm");
+    expect(runStep1Pipeline).toHaveBeenCalledWith(
+      expect.objectContaining({ recording: { buffer: fakeAudio, filename: "recording.webm" } }),
+    );
   });
 
-  it("fails cleanly when compression fails", async () => {
-    vi.mocked(ensureTranscribable).mockRejectedValue(
-      new HttpError(413, "Audio file is too large to transcribe even after compression."),
-    );
+  it("does not respond or start the pipeline when the Drive upload fails", async () => {
+    vi.mocked(uploadBinary).mockRejectedValue(new Error("Drive is down"));
 
     const res = await request(app)
       .post("/webhook/kamash/step1")
       .field("patientName", "ילד א")
       .attach("audioFile", fakeAudio, { filename: "recording.webm", contentType: "audio/webm" });
 
-    expect(res.status).toBe(413);
-    expect(createPatientFolder).not.toHaveBeenCalled();
+    expect(res.status).toBe(500);
     expect(diagnosesRepo.appendDiagnosis).not.toHaveBeenCalled();
     expect(runStep1Pipeline).not.toHaveBeenCalled();
   });

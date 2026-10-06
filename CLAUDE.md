@@ -12,11 +12,11 @@ is done per-endpoint at the nginx layer (see README "Cutting an endpoint over").
 **The n8n workflows are the spec.** Behavior — prompts, the segmentation JSON schema, the assembled-HTML
 CSS, link shapes written into Sheets, the frontend's polling contract — was reverse-engineered from n8n
 exports and is reproduced deliberately, often with a comment saying so. When something looks odd (matching a
-"שאלוני הורים" row by patient name, `transcriptFile` always being raw audio, placeholder email copy), it is
+"שאלוני הורים" row by patient name, `transcriptFile` always being raw audio), it is
 almost always faithful to n8n on purpose. Before "fixing" such a thing, confirm it isn't load-bearing for the
 frontend or n8n parity. Intentional *departures* from n8n are the few places called out explicitly in code
 comments and the README (folder naming, the dropped hardcoded email CC, 400-on-missing-mail, the stale-job
-sweep), plus the output-quality work in "Tuning output against the clinic's hand-edits" below — preserve
+sweep, transcription moved out of the step1 request, the clinic's own RTL email wording), plus the output-quality work in "Tuning output against the clinic's hand-edits" below — preserve
 those departures.
 
 ## Commands
@@ -70,12 +70,15 @@ test strategy work.
 ### step1 is the whole pipeline; everything else is CRUD-on-Sheets
 `POST /kamash/step1` ([routes/step1.ts](src/routes/step1.ts)) is the only heavy endpoint. It:
 1. Validates the form + audio (rejects non-Whisper MIME types up front), creates the Drive folder, uploads
-   the recording and transcribes (Whisper) in parallel, appends the "אבחונים" row with `status: processing`.
-2. **Responds immediately** with `{ jobid, status }`, then fires `runStep1Pipeline(...)` fire-and-forget.
+   the recording as-is, appends the "אבחונים" row with `status: processing`.
+2. **Responds immediately** with `{ jobid, status }`, then fires `runStep1Pipeline(...)` fire-and-forget,
+   handing it the recording itself. Nothing slow happens before the response: compression and Whisper both
+   take minutes on a long session, and the diagnostician used to sit on the upload screen through them.
 
 `services/pipeline/step1Pipeline.ts` is the background job (formerly a chain of n8n sub-workflows), run in the
 same process — not a queue:
-transcript cleanup (GPT-4.1, spelling/punctuation *only*, plus the glossary described below) → segment into
+compression for Whisper's 25MB limit (`audioService.ensureTranscribable`, ffmpeg, oversized files only) →
+transcription (Whisper) → transcript cleanup (GPT-4.1, spelling/punctuation *only*, plus the glossary described below) → segment into
 the fixed JSON schema (`openaiService.segmentToJson`, `status → processing2`) → per-section rewrite (Claude,
 `anthropicService`) → per-section HTML (GPT-4.1, `htmlConversionService.sectionToHtml`, whose LLM output then
 passes through deterministic clean-up) → **deterministic** `assembleDocument` (no LLM — CSS is hardcoded to
@@ -104,6 +107,15 @@ These are deliberate departures from n8n parity — n8n produced the same proble
   "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
   from rewriting. A word it cannot resolve is marked `[לא ברור]` instead of being smoothed over, and that
   marker is meant to reach the editor.
+
+  The list has two halves. The hardcoded one grew from those diffs plus terms the clinic reported outright
+  ("סיכול אותיות" for "שיכול אותיות"). The other is the clinic's own "מונחים קבועים" row in the config sheet,
+  pulled in by `getGeneralRule(FIXED_TERMS_RULE_TYPE)` — that row is part of `getGeneralRules()` too and so
+  reaches the per-section rewrite regardless; feeding it to cleanup as well is what applies it *before*
+  segmentation routes content it has already misread. **A wrong professional term is not a spelling error** —
+  "סיכול" is a correctly spelled Hebrew word in a plausible context, and no amount of "תקן שגיאות כתיב" in any
+  of the three prompts that carry it will catch one. Only a term list will, so a new term belongs in that
+  sheet row (clinic-editable, no deploy), not in a new prompt rule.
 - **Section ownership** (`SEGMENTATION_PROMPT` rules 9–10): parent/teacher reports belong to
   `referral_reason`, not `general_impression`; numeric targets belong to `goals`, not `home_practice`. Real
   output crossed both boundaries despite the generic "one section only" rule 6.

@@ -5,8 +5,6 @@ import { upload } from "../middleware/upload.js";
 import { HttpError } from "../lib/httpError.js";
 import { generateJobId } from "../lib/ids.js";
 import { createPatientFolder, uploadBinary } from "../services/driveService.js";
-import { ensureTranscribable } from "../services/audioService.js";
-import { transcribe } from "../services/openaiService.js";
 import { diagnosesRepo } from "../services/sheetsService.js";
 import { runStep1Pipeline } from "../services/pipeline/step1Pipeline.js";
 import { DIAGNOSES_COLUMNS, DiagnosisStatus } from "../config/sheets.js";
@@ -40,6 +38,9 @@ const bodySchema = z.object({
   id: z.string().default(""),
   city: z.string().default(""),
   mail: z.string().default(""),
+  // Deliberately not an enum: the sheet column is free text, and a new option in the
+  // frontend's select should not start failing intake with a 400.
+  healthFund: z.string().default(""),
 });
 
 export const step1Router = Router();
@@ -68,17 +69,13 @@ step1Router.post(
       );
     }
 
-    // Compress before creating any Drive/sheet state so a compression failure
-    // leaves no orphan folder or row. The original file still goes to Drive as-is.
-    const transcribable = await ensureTranscribable(record.buffer, record.originalname);
-
+    // Only the steps that create the job's state happen before responding. Compression
+    // (ffmpeg, minutes for a long session) and transcription (Whisper, minutes as well) are
+    // the pipeline's first stage, so the diagnostician reaches the polling screen as soon
+    // as the upload lands; a failure there marks the job failed like any later stage.
     const jobId = generateJobId();
     const folder = await createPatientFolder(fields.patientName, jobId);
-
-    const [uploaded, transcript] = await Promise.all([
-      uploadBinary(folder.fileId, record.originalname, record.buffer, record.mimetype),
-      transcribe(transcribable.buffer, transcribable.filename),
-    ]);
+    const uploaded = await uploadBinary(folder.fileId, record.originalname, record.buffer, record.mimetype);
 
     await diagnosesRepo.appendDiagnosis({
       [DIAGNOSES_COLUMNS.TIMESTAMP]: new Date().toISOString(),
@@ -94,6 +91,7 @@ step1Router.post(
       [DIAGNOSES_COLUMNS.STATUS]: DiagnosisStatus.PROCESSING,
       [DIAGNOSES_COLUMNS.ID_NUMBER]: fields.id,
       [DIAGNOSES_COLUMNS.EMAIL]: fields.mail,
+      [DIAGNOSES_COLUMNS.HEALTH_FUND]: fields.healthFund,
     });
 
     res.json({ jobid: jobId, status: DiagnosisStatus.PROCESSING });
@@ -103,7 +101,8 @@ step1Router.post(
     void runStep1Pipeline({
       jobId,
       folderId: folder.fileId,
-      rawTranscript: transcript,
+      // The original recording; the pipeline compresses it for Whisper if needed.
+      recording: { buffer: record.buffer, filename: record.originalname },
       patient: {
         name: fields.patientName,
         age: fields.age,
