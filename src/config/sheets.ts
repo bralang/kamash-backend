@@ -80,6 +80,7 @@ export const PARENT_QUESTIONNAIRES_COLUMNS = {
   STATUS: "סטטוס",
   DATE: "תאריך",
   CLOSED_FORM: "טופס סגור",
+  HEALTH_FUND: "קופת חולים",
 } as const;
 
 export const SECTION_INSTRUCTIONS_COLUMNS = {

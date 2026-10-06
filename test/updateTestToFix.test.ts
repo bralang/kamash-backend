@@ -50,6 +50,20 @@ describe("POST /webhook/kamash/updateTestToFix", () => {
     });
   });
 
+  it("writes the health fund when one was chosen, and leaves the cell alone otherwise", async () => {
+    vi.mocked(parentQuestionnairesRepo.findByName).mockResolvedValue({ rowNumber: 3, row: {} });
+
+    await request(app).post("/webhook/kamash/updateTestToFix").send({ patientName: "א", healthFund: "מכבי" });
+    expect(vi.mocked(parentQuestionnairesRepo.updateByRowNumber).mock.calls[0][1]).toMatchObject({
+      [PARENT_QUESTIONNAIRES_COLUMNS.HEALTH_FUND]: "מכבי",
+    });
+
+    await request(app).post("/webhook/kamash/updateTestToFix").send({ patientName: "א", healthFund: "" });
+    expect(vi.mocked(parentQuestionnairesRepo.updateByRowNumber).mock.calls[1][1]).not.toHaveProperty(
+      PARENT_QUESTIONNAIRES_COLUMNS.HEALTH_FUND,
+    );
+  });
+
   it("returns 404 when no pending questionnaire matches the name", async () => {
     vi.mocked(parentQuestionnairesRepo.findByName).mockResolvedValue(null);
 

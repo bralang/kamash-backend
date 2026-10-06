@@ -17,6 +17,7 @@ const bodySchema = z.object({
   city: z.string().default(""),
   date: z.string().optional(),
   mail: z.string().optional(),
+  healthFund: z.string().default(""),
 });
 
 export const updateTestToFixRouter = Router();
@@ -24,7 +25,7 @@ export const updateTestToFixRouter = Router();
 updateTestToFixRouter.post(
   "/updateTestToFix",
   asyncHandler(async (req, res) => {
-    const { patientName, idNumber, age, school, grade, city } = bodySchema.parse(req.body);
+    const { patientName, idNumber, age, school, grade, city, healthFund } = bodySchema.parse(req.body);
 
     const found = await parentQuestionnairesRepo.findByName(patientName);
     if (!found) {
@@ -39,6 +40,9 @@ updateTestToFixRouter.post(
       [PARENT_QUESTIONNAIRES_COLUMNS.SCHOOL]: school,
       [PARENT_QUESTIONNAIRES_COLUMNS.CITY]: city,
       [PARENT_QUESTIONNAIRES_COLUMNS.STATUS]: ParentQuestionnaireStatus.COMPLETED,
+      // Only when chosen: the form pre-fills just the values in its closed list, so an
+      // empty one may mean "the sheet holds something else", not "clear it".
+      ...(healthFund ? { [PARENT_QUESTIONNAIRES_COLUMNS.HEALTH_FUND]: healthFund } : {}),
     });
 
     res.json({ status: "ok" });
