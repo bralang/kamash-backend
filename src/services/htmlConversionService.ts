@@ -61,6 +61,7 @@ TASK
 28. הוסף לטבלה class בשם diagnosis-table.
 29. אל תוסיף עיצוב inline לטבלה.
 30. יש להניח שעיצוב הגריד, הגבולות והרקע האפור לכותרת יוגדרו ב-CSS חיצוני לפי class בשם diagnosis-table.
+30א. בתא טבלה שמכיל נתון כמותי (כגון זמן או מספר מילים) ואחריו אחוז דיוק, הפרד ביניהם בירידת שורה: פסיק אחרי הנתון הכמותי ואז <br>, למשל "50 שניות,<br>דיוק 95 אחוז".
 31. אם המידע אינו מתאים בבירור לטבלה, אל תיצור טבלה גם אם יש כמה שורות.
 32. שמור על HTML סמנטי ונקי.
 33. הפלט חייב להיות תקין גם כאשר יחובר למקטעים נוספים.
@@ -132,9 +133,34 @@ export function stripGroupHeadingMarkers(html: string): string {
   );
 }
 
+/** An accuracy figure: "דיוק ..." or a percentage. */
+const ACCURACY = /דיוק|\d\s*(?:%|אחוז)/;
+const DIGIT = /\d/;
+
+/** The clinic asked for the findings table to put the accuracy figure on its own line —
+ * "50 שניות,<br>דיוק 95 אחוז" rather than one run of text. Rule 30א asks the model for it;
+ * this makes it certain. Inside a <td> only, a comma whose preceding segment holds a number
+ * and whose following segment is an accuracy figure becomes ",<br>". A comma between two
+ * digits ("1,000") is a number, and one already followed by a <br> is left as it is. */
+export function breakAccuracyInCells(html: string): string {
+  return html.replace(/(<td\b[^>]*>)([\s\S]*?)(<\/td>)/gi, (_match, open: string, inner: string, close: string) => {
+    const broken = inner.replace(/,[ \t\xA0]*(?!<br)/g, (comma: string, offset: number, s: string) => {
+      const before = s.slice(0, offset);
+      const rest = s.slice(offset + comma.length);
+      if (/\d$/.test(before) && /^\d/.test(rest)) return comma;
+      const prev = before.split(/[,>]/).pop() ?? "";
+      const next = rest.split(/[,<]/)[0];
+      return DIGIT.test(prev) && ACCURACY.test(next) ? ",<br>" : comma;
+    });
+    return `${open}${broken}${close}`;
+  });
+}
+
 export async function sectionToHtml(params: SectionToHtmlParams): Promise<string> {
   const html = await chatComplete({ user: SECTION_HTML_PROMPT(params) });
-  return stripRedundantSubheadings(stripGroupHeadingMarkers(html.trim()), params.sectionTitle);
+  return breakAccuracyInCells(
+    stripRedundantSubheadings(stripGroupHeadingMarkers(html.trim()), params.sectionTitle),
+  );
 }
 
 function escapeHtml(text: string): string {
