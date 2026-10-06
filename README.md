@@ -83,9 +83,17 @@ A boot-time sweep (`services/pipeline/staleJobSweep.ts`, wired into `index.ts`) 
 `processing`/`processing2` for more than 30 minutes to `failed` — a self-healing improvement n8n never
 had, covering the case where the process itself dies mid-pipeline.
 
-CORS is wide open (`cors()` with no origin restriction) since the frontend is served from a different
-domain than this API — matching the n8n webhook nodes' own `"allowedOrigins": "*"` setting, not a new,
-looser policy introduced by this port.
+Every endpoint except `auth/login`, `auth/logout` and `version` requires a signed-in user (see
+"Authentication" in CLAUDE.md). CORS is therefore no longer `*`: it allows credentials for
+`https://*.link-up.co.il` and `http://localhost:8080` only, or for the list in `AUTH_ALLOWED_ORIGINS`.
+
+### Managing users
+
+Users are rows in the "משתמשים" tab of the main spreadsheet, with the header cells `אימייל`, `שם`,
+`סיסמה מוצפנת`, `פעיל`, `גרסת התחברות`. To add someone or reset a password, run `npm run hash-password`
+(no `.env` needed), type the password, and paste the printed `scrypt$…` line into `סיסמה מוצפנת`. Set
+`פעיל` to `כן` to let them in; anything else blocks them. Changing `גרסת התחברות` (e.g. 1 → 2) signs that
+user out of every browser. Changes take effect within a minute (the sheet is cached that long).
 
 ## Setup
 

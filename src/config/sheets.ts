@@ -26,6 +26,11 @@ export const SHEETS = {
     spreadsheetId: SPREADSHEET_ID,
     name: "שאלוני הורים",
   } satisfies SheetRef,
+  /** Who may log in. Not from n8n — added with the login (see services/authService.ts). */
+  USERS: {
+    spreadsheetId: SPREADSHEET_ID,
+    name: "משתמשים",
+  } satisfies SheetRef,
 };
 
 export const CONFIG_SHEETS = {
@@ -80,6 +85,17 @@ export const PARENT_QUESTIONNAIRES_COLUMNS = {
   STATUS: "סטטוס",
   DATE: "תאריך",
   CLOSED_FORM: "טופס סגור",
+} as const;
+
+export const USERS_COLUMNS = {
+  EMAIL: "אימייל",
+  NAME: "שם",
+  /** `scrypt$…` string printed by `npm run hash-password`; never a plain password. */
+  PASSWORD_HASH: "סיסמה מוצפנת",
+  /** "כן" lets the user in; anything else (including empty) blocks them. */
+  ACTIVE: "פעיל",
+  /** Optional. Changing the value (e.g. 1 → 2) signs that user out everywhere. */
+  SESSION_VERSION: "גרסת התחברות",
 } as const;
 
 export const SECTION_INSTRUCTIONS_COLUMNS = {

@@ -132,6 +132,12 @@ export const versionsRepo = {
   },
 };
 
+export const usersRepo = {
+  findAll(): Promise<Record<string, string>[]> {
+    return getAllRows(SHEETS.USERS);
+  },
+};
+
 export const parentQuestionnairesRepo = {
   /** Matches the n8n workflow's own (fragile) key: patient name. If more than one row
    * shares a name, that's a real ambiguity in the data — log it loudly and fall back to
