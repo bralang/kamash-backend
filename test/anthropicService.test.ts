@@ -124,6 +124,17 @@ describe("rewriteSection", () => {
     expect(system.indexOf("הקשר הטקסט:")).toBeLessThan(system.indexOf("RULES:"));
   });
 
+  it("bounds the free edit: no term swaps, no meaning drift, no additions, no dropping sensitive facts", async () => {
+    await rewriteSection(baseParams);
+
+    const system = lastSystemPrompt();
+    expect(system).toContain("אין להחליף מונח מקצועי, שם של שיטה, משחק, מבחן או טיפול במונח אחר");
+    expect(system).toContain('"ויסות חושי" אינו הופך ל"דיאטה נירוסנסורית"');
+    expect(system).toContain("מילה חלופית חייבת לשמור על משמעות המקור במדויק");
+    expect(system).toContain("אין להוסיף שורה, פרט או קושי שלא נאמרו בתמלול");
+    expect(system).toContain("אין להשמיט מידע רגיש שנאמר בתמלול");
+  });
+
   it("asks for the report text only, with no notes about the edit", async () => {
     await rewriteSection(baseParams);
 
