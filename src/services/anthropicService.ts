@@ -123,6 +123,32 @@ ${allowedSubheadings}
 9. כותרת ראשית שכל כותרות המשנה שתחתיה הושמטו מחוסר תוכן — השמט גם אותה.
 10. שמור על סדר הכותרות כפי שהוא מופיע ברשימה.`;
 
+// The diagnostician dictates the report aloud, and Hebrew is not her first language, so
+// the transcript carries non-idiomatic collocations, agreement errors and foreign word
+// order. Without being told, the model treated the transcript as the wording to keep
+// ("תצמד לנתונים מהתמלול", "אל תשמיט מידע!") and fixed only spelling: "ירגיש מוכשל"
+// came out as "הרגיש מוכשל". This asks for a full language edit, bounded by the
+// clinical facts. The examples are transcript lines from a real diagnosis paired with
+// the wording the clinic's language editor approved; they also give "התאם את סגנון
+// הניסוח לדוגמאות שקיבלת" in the task prompt the examples it always referred to.
+// Recurring phrases of this kind can be added to the config sheet without a deploy.
+const DICTATION_CONTEXT = `
+הקשר הטקסט:
+הטקסט הוא תמלול של הקראה בעל פה של המאבחנת. עברית אינה שפת האם שלה, ולכן התמלול כולל ניסוחים שאינם עבריים תקניים: צירופים שאינם קיימים בעברית, התאמה שגויה במין ובמספר, סדר מילים זר, בחירת מילים לא מדויקת, ומשפטים ארוכים עם חזרות.
+
+המשימה היא עריכה לשונית מלאה, לא תיקון נקודתי:
+- נסח מחדש כל משפט שאינו נשמע כעברית כתובה, טבעית ומקצועית של כותב ילידי, גם כאשר אין בו שגיאת כתיב.
+- מותר ורצוי לשנות מבנה משפט וסדר מילים, לפצל ולאחד משפטים ולהחליף מילים. אין לשמור על ניסוח רק משום שכך נאמר בתמלול.
+- הגבול: התוכן הקליני נשמר במלואו: כל ממצא, מספר, שם, שיטה, משחק והמלצה. משנים את הניסוח, לא את העובדות.
+
+דוגמאות (תמלול - עריכה):
+- "נצמד לו מורת קריאה" - "הוצמדה לו מורת קריאה"
+- "ניגש בבגרות, הסכים לעשות כל דבר שרוצים ממנו" - "שיתף פעולה לאורך כל האבחון ונענה לכל הנדרש ממנו"
+- "אם ירגיש מוכשל עם המשימה" - "כאשר חש חוסר הצלחה במשימה"
+- "הוא העדיף לעשות כלום מאשר להוציא משהו לא ב-100 אחוז תקין" - "העדיף להימנע ממתן תשובה על פני מתן תשובה שגויה"
+- "לא בכלל הוא יודע את הנלמד בכיתה" - "אינו שולט בנלמד בכיתה"
+`;
+
 const SYSTEM_PROMPT_TEMPLATE = (editingInstructions: string, generalRules: string, allowedSubheadings: string) => `SYSTEM
 אתה עורך לשוני מקצועי לאבחונים של מכון קמ"ש.
 המשימה שלך היא לערוך טקסט תמלול לאבחון קריאה, בעברית מקצועית וברורה.
@@ -134,7 +160,7 @@ const SYSTEM_PROMPT_TEMPLATE = (editingInstructions: string, generalRules: strin
 ללא הוספת מידע שלא הופיע בתמלול
 ניסוח תמציתי - ללא חזרות
 מעבר ממשפטים דיבוריים למשפטים כתובים תקניים, קצרים ופשוטים, ללא לשון ספרותית או מליצית
-
+${DICTATION_CONTEXT}
 RULES:
 הוראות עריכה:
 ${editingInstructions}
@@ -160,7 +186,7 @@ TASK
 תתאים את התאורים של הילד לפי הגיל ולפי המאפיינים של מקום המגורים ושיוך מגזרי (ליטאי, חסידי, ספרדי) ויש להתיחס אם צוין שהילד חינוך מיוחד ולהתאים את התאורים לרמה הקוגנטיבית
 
 OUTPUT
-טקסט מוכן לשילוב באבחון.`;
+טקסט מוכן לשילוב באבחון, ורק הוא: ללא הערות, הסברים או הצדקות על העריכה עצמה.`;
 
 export async function rewriteSection(params: RewriteSectionParams): Promise<string> {
   const anthropic = getClient();

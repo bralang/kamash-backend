@@ -139,6 +139,13 @@ These are deliberate departures from n8n parity — n8n produced the same proble
   replaced by hand in all three diagnoses diffed. It also contradicted the config sheet's own rule ("קרוב לשפה
   הדבורה"), and the hardcoded prompt wins that contest. It now asks for plain, short standard Hebrew; the
   concrete word swaps live in the sheet's "כללי לשון" row, where the clinic can extend them without a deploy.
+- **Dictation context** (`DICTATION_CONTEXT`): the diagnostician dictates, and Hebrew is not her first
+  language. Told only to stick to the transcript and omit nothing, the model kept her non-idiomatic phrasing
+  and fixed spelling ("ירגיש מוכשל" became "הרגיש מוכשל"). The block asks for a full language edit bounded by
+  the clinical facts, with transcript/approved-wording pairs as examples. It sits *before* RULES so the sheet
+  can still narrow the edit. The cleanup stage stays literal on purpose — the rewrite is where editing happens.
+  The task prompt's OUTPUT line also forbids notes about the edit: a sheet rule that clashed with "אל תשמיט
+  מידע!" once made the model explain an omission inside the report itself.
 - **Transcript glossary** (`CLEANUP_SYSTEM_PROMPT`): Whisper mis-transcribed the same clinical terms in both
   diagnoses — "חי\"ת סופית", which is not a Hebrew letter at all, for "כ\"ף סופית", and "ביסוס חושי" for
   "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
