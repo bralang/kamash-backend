@@ -146,6 +146,11 @@ These are deliberate departures from n8n parity — n8n produced the same proble
   can still narrow the edit. The cleanup stage stays literal on purpose — the rewrite is where editing happens.
   The task prompt's OUTPUT line also forbids notes about the edit: a sheet rule that clashed with "אל תשמיט
   מידע!" once made the model explain an omission inside the report itself.
+  The freedom costs accuracy unless bounded: its first run swapped a clinical term ("ויסות חושי" → "דיאטה
+  נירוסנסורית"), changed meaning with near-synonyms ("לעודד" → "לעגן", "איות" → "איחוי"), added a difficulty
+  never said and dropped "ולעיתים אף אלימות". A second list in the block forbids each of those, using those
+  errors as its examples. If the clinic decides a sensitive fact should be left out, say so in the sheet —
+  the default here is to keep it, phrased with restraint.
 - **Transcript glossary** (`CLEANUP_SYSTEM_PROMPT`): Whisper mis-transcribed the same clinical terms in both
   diagnoses — "חי\"ת סופית", which is not a Hebrew letter at all, for "כ\"ף סופית", and "ביסוס חושי" for
   "ויסות חושי". The glossary is a correction list for the cleanup stage only; that stage is still forbidden
