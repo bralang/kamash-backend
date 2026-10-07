@@ -112,6 +112,25 @@ describe("rewriteSection", () => {
     expect(result).toBe("טקסט ערוך");
   });
 
+  it("tells the model the transcript is non-native dictation and asks for a full edit, with examples", async () => {
+    await rewriteSection(baseParams);
+
+    const system = lastSystemPrompt();
+    expect(system).toContain("עברית אינה שפת האם שלה");
+    expect(system).toContain("המשימה היא עריכה לשונית מלאה, לא תיקון נקודתי");
+    expect(system).toContain("משנים את הניסוח, לא את העובדות");
+    expect(system).toContain('"נצמד לו מורת קריאה" - "הוצמדה לו מורת קריאה"');
+    // Ahead of the clinic's rules, so the sheet can still narrow what the edit may do.
+    expect(system.indexOf("הקשר הטקסט:")).toBeLessThan(system.indexOf("RULES:"));
+  });
+
+  it("asks for the report text only, with no notes about the edit", async () => {
+    await rewriteSection(baseParams);
+
+    const task = createMock.mock.calls.at(-1)?.[0]?.messages?.[0]?.content ?? "";
+    expect(task).toContain("ללא הערות, הסברים או הצדקות על העריכה עצמה");
+  });
+
   it("sends the request with thinking disabled", async () => {
     await rewriteSection(baseParams);
 
